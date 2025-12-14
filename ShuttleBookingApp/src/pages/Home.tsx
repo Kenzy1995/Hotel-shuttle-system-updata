@@ -160,6 +160,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
   const currentTripRef = useRef<string | null>(null);
   const mainLoopRef = useRef<any>(null);
+  const gpsEnabledStartTimeRef = useRef<number | null>(null); // 追蹤 GPS 啟用時間
 
   // Sidebar State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -669,35 +670,54 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
       const res = await sendCurrentLocation(tripId, false, Math.max(3, gpsInterval) * 60 * 1000);
       // 自動關閉定位：只在GPS已經開啟且自動關閉功能啟用時才檢查
       // 這個檢查不會阻擋手動開啟或出車開始時的開啟
+      // 只有在 GPS 已經運行超過判定時間的一半時才開始檢查，避免剛開啟時就觸發
       if (res && autoShutdownEnabled && gpsEnabled) {
         const windowMs = Math.max(1, autoShutdownMinutes) * 60 * 1000;
         const minDist = Math.max(1, autoShutdownDistance);
-        const stop = shouldAutoShutdown(res.lat, res.lng, res.timestamp, windowMs, minDist);
-        if (stop) {
-          // 只關閉GPS，不會阻止後續的開啟操作
-          setGpsEnabled(false);
-          localStorage.setItem('gps_enabled', 'false');
-          // 如果是在出車中，自動結束出車
-          if (currentTrip) {
-            try {
-              await completeGoogleTrip(currentTrip.id);
+        
+        // 檢查 GPS 是否已經運行足夠長的時間（至少判定時間的一半）
+        const now = Date.now();
+        const gpsStartTime = gpsEnabledStartTimeRef.current || now;
+        const gpsRunningTime = now - gpsStartTime;
+        const minCheckTime = windowMs / 2; // 至少運行判定時間的一半才開始檢查
+        
+        // 只有在 GPS 已經運行足夠長時間時才檢查自動關閉
+        if (gpsRunningTime >= minCheckTime) {
+          const stop = shouldAutoShutdown(res.lat, res.lng, res.timestamp, windowMs, minDist);
+          if (stop) {
+            // 只關閉GPS，不會阻止後續的開啟操作
+            setGpsEnabled(false);
+            localStorage.setItem('gps_enabled', 'false');
+            gpsEnabledStartTimeRef.current = null; // 重置啟用時間
+            // 如果是在出車中，自動結束出車
+            if (currentTrip) {
+              try {
+                await completeGoogleTrip(currentTrip.id);
+                setToastContext('default');
+                setToastSuccess(true);
+                setToastMessage(`已自動結束出車（${autoShutdownMinutes} 分鐘位移 < ${autoShutdownDistance} 公尺）`);
+              } catch (e) {
+                console.error('Auto complete trip error:', e);
+              }
+            } else {
               setToastContext('default');
               setToastSuccess(true);
-              setToastMessage(`已自動結束出車（${autoShutdownMinutes} 分鐘位移 < ${autoShutdownDistance} 公尺）`);
-            } catch (e) {
-              console.error('Auto complete trip error:', e);
+              setToastMessage(`已自動關閉定位（${autoShutdownMinutes} 分鐘位移 < ${autoShutdownDistance} 公尺）`);
             }
-          } else {
-            setToastContext('default');
-            setToastSuccess(true);
-            setToastMessage(`已自動關閉定位（${autoShutdownMinutes} 分鐘位移 < ${autoShutdownDistance} 公尺）`);
           }
         }
       }
     };
     // 如果GPS已啟用，立即發送一次
     if (gpsSystemEnabled && gpsEnabled) {
+      // 記錄 GPS 啟用時間（如果還沒記錄）
+      if (!gpsEnabledStartTimeRef.current) {
+        gpsEnabledStartTimeRef.current = Date.now();
+      }
       runGps();
+    } else {
+      // GPS 關閉時重置啟用時間
+      gpsEnabledStartTimeRef.current = null;
     }
     const intervalMs = Math.max(3, gpsInterval) * 60 * 1000;
     gpsLoopRef.current = setInterval(runGps, intervalMs);
@@ -2125,7 +2145,11 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                            localStorage.setItem('driver_trip_id', (resp as any).trip_id as string);
                          }
                          // 啟動 GPS 發送
-                         try { localStorage.setItem('gps_enabled', 'true'); setGpsEnabled(true); } catch {}
+                         try { 
+                           localStorage.setItem('gps_enabled', 'true'); 
+                           setGpsEnabled(true);
+                           gpsEnabledStartTimeRef.current = Date.now(); // 記錄 GPS 啟用時間
+                         } catch {}
                          // 分享地圖邏輯移除
                          
                        } catch {}
