@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Mock Google Map</title>
+<style>
+body{margin:0;font-family:system-ui,Arial}#app{padding:12px}#map{width:100%;height:70vh;border:1px solid #ddd;border-radius:8px}button{padding:8px 12px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer}input{padding:8px;border:1px solid #ccc;border-radius:6px}
+</style>
+</head>
+<body>
+<div id="app">
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+<input id="key" type="text" placeholder="API Key" style="flex:1"/>
+<button id="load">載入地圖</button>
+</div>
+<div id="map"></div>
+</div>
+<script>
+const qsKey=new URLSearchParams(location.search).get('key');
+const keyInput=document.getElementById('key');
+if(qsKey){keyInput.value=qsKey}
+document.getElementById('load').onclick=()=>{const k=keyInput.value.trim();if(!k)return;const s=document.createElement('script');s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(k);s.async=true;s.onload=init;s.onerror=()=>alert('載入失敗');document.head.appendChild(s)};
+function init(){const map=new google.maps.Map(document.getElementById('map'),{center:{lat:25.068,lng:121.662},zoom:14});const stops=[{id:'forte',lat:25.068,lng:121.662},{id:'mrt',lat:25.0555,lng:121.6177},{id:'train',lat:25.0523,lng:121.6075},{id:'mall',lat:25.0559,lng:121.6149}];stops.forEach(p=>new google.maps.Marker({position:{lat:p.lat,lng:p.lng},map,label:p.id}));const path=stops.map(p=>({lat:p.lat,lng:p.lng}));new google.maps.Polyline({path,geodesic:true,strokeColor:'#1976d2',strokeOpacity:0.9,strokeWeight:4,map})}
+</script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HyperTrack 分享地圖預覽</title>
+  <style>
+    body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .bar { padding:10px; border-bottom:1px solid #ddd; display:flex; gap:8px; align-items:center; }
+    .bar input { flex:1; padding:8px 10px; border:1px solid #ccc; border-radius:8px; }
+    .bar button { padding:8px 12px; border-radius:8px; border:1px solid #0b63ce; background:#eef6ff; color:#0b63ce; cursor:pointer; }
+    .wrap { height: calc(100vh - 54px); }
+    iframe { width:100%; height:100%; border:0; }
+    .hint { font-size:12px; color:#666; padding:6px 10px; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <input id="url" type="text" placeholder="貼上 share_url，例如 https://..." />
+    <button id="load">載入</button>
+  </div>
+  <div class="hint">也可用 ?url= 參數，例如 hypertrack-share.html?url=https%3A%2F%2F...</div>
+  <div class="wrap" id="wrap"></div>
+  <script>
+    function getParam(name) {
+      const u = new URL(window.location.href)
+      return u.searchParams.get(name)
+    }
+    function load(url) {
+      const wrap = document.getElementById('wrap')
+      wrap.innerHTML = ''
+      if (!url) return
+      const iframe = document.createElement('iframe')
+      iframe.referrerPolicy = 'no-referrer'
+      iframe.src = url
+      wrap.appendChild(iframe)
+    }
+    document.getElementById('load').onclick = () => load(document.getElementById('url').value.trim())
+    const q = getParam('url')
+    if (q) {
+      document.getElementById('url').value = q
+      load(q)
+    }
+  </script>
+</body>
+</html>

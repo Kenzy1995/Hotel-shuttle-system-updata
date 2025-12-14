@@ -1,0 +1,45 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+
+# Build outputs
+dist/
+build/
+
+# Android
+android/app/build/
+android/.gradle/
+android/local.properties
+android/captures/
+android/.idea/
+android/*.iml
+android/capacitor-cordova-android-plugins/build/
+
+# iOS
+ios/Pods/
+ios/build/
+ios/*.xcworkspace
+ios/*.xcuserdata
+
+# Capacitor
+.capacitor/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# 環境變數
+.env
+.env.local
+
+# 敏感文件
+*.keystore
+keystore.properties
+google-services.json
+
+# 系統文件
+.DS_Store
+Thumbs.db
+
