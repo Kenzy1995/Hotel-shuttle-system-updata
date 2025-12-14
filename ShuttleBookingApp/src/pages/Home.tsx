@@ -906,7 +906,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
         // 如果有API調用且GPS已啟用，一次性發送GPS位置
         if (gpsSystemEnabled && gpsEnabled) {
           try {
-            await sendCurrentLocation(currentTrip?.id || null, true); // 強制發送
+            await sendCurrentLocation(true); // 強制發送
           } catch (e) {
             console.error("GPS send error during flush", e);
           }
@@ -1320,13 +1320,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
               <div className="pm-desc">
                  需要更新至最新版本才能繼續使用。
               </div>
-              <button className="pm-btn" onClick={() => { 
-                if (updateUrl) {
-                  // Use window.open with _system target for Capacitor
-                  // This will open in external browser for download
-                  window.open(updateUrl, '_system');
-                }
-              }}>
+              <button className="pm-btn" onClick={() => { if (updateUrl) window.open(updateUrl, '_system'); }}>
                  前往下載更新
               </button>
            </div>
@@ -1610,7 +1604,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                         setGpsInterval(v);
                                         localStorage.setItem('gps_update_interval', String(v));
                                       }} 
-                                      style={{maxWidth: '120px'}}
+                                      style={{maxWidth: '80px', width: '80px'}}
                                     />
                                     <span style={{fontSize: '14px', color: '#666'}}>分鐘</span>
                                   </div>
@@ -1637,7 +1631,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                       <input type="number" min={1} value={autoShutdownMinutes} onChange={e => {
                                         const v = Math.max(1, parseInt(e.target.value || '1', 10));
                                         setAutoShutdownMinutes(v);
-                                      }} style={{maxWidth: '120px'}} />
+                                      }} style={{maxWidth: '80px', width: '80px'}} />
                                       <span style={{fontSize: '14px', color: '#666'}}>分鐘</span>
                                     </div>
                                   </div>
@@ -1647,7 +1641,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                       <input type="number" min={1} value={autoShutdownDistance} onChange={e => {
                                         const v = Math.max(1, parseInt(e.target.value || '1', 10));
                                         setAutoShutdownDistance(v);
-                                      }} style={{maxWidth: '120px'}} />
+                                      }} style={{maxWidth: '80px', width: '80px'}} />
                                       <span style={{fontSize: '14px', color: '#666'}}>公尺</span>
                                     </div>
                                   </div>

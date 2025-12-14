@@ -1,5 +1,6 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
+import { Haptics } from '@capacitor/haptics';
 
 export const ensureNotificationChannel = async (
   soundName: string = 'notify_sound_1'
@@ -67,4 +68,13 @@ export const scheduleDepartureNotification = async (
       }
     ]
   });
+  
+  // 確保所有音效都觸發震動（特別是音效2和3）
+  if (Capacitor.getPlatform() === 'android') {
+    try {
+      await Haptics.vibrate({ duration: 200 });
+    } catch (e) {
+      console.error('Haptics vibrate error:', e);
+    }
+  }
 };
