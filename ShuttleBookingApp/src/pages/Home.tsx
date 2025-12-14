@@ -412,6 +412,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     setGpsInterval(3);
     setGpsEnabled(false);
     setGpsSystemEnabled(true);
+    gpsEnabledStartTimeRef.current = null;
     setNotificationMinutes(30);
     setNotificationSoundEnabled(true);
     setToastContext('default');
@@ -1585,6 +1586,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                 if (!val) {
                                   setGpsEnabled(false);
                                   localStorage.setItem('gps_enabled', 'false');
+                                  gpsEnabledStartTimeRef.current = null;
                                 }
                               }} />
                               <span className="slider"></span>
@@ -1604,6 +1606,11 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                     const val = e.target.checked;
                                     setGpsEnabled(val);
                                     localStorage.setItem('gps_enabled', String(val));
+                                    if (val) {
+                                      gpsEnabledStartTimeRef.current = Date.now();
+                                    } else {
+                                      gpsEnabledStartTimeRef.current = null;
+                                    }
                                   }} />
                                   <span className="slider"></span>
                                 </label>
@@ -2184,7 +2191,11 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                      const dt = `${currentTrip.date.replace(/-/g,'/')}` + ' ' + `${currentTrip.time}`;
                      setToastMessage('已設定為已結束');
                    // 結束時關閉 GPS 發送
-                   try { localStorage.setItem('gps_enabled', 'false'); setGpsEnabled(false); } catch {}
+                   try { 
+                     localStorage.setItem('gps_enabled', 'false'); 
+                     setGpsEnabled(false);
+                     gpsEnabledStartTimeRef.current = null;
+                   } catch {}
                      const tid = activeTripId || localStorage.getItem('driver_trip_id') || '';
                      if (tid) { completeGoogleTrip(tid).catch(()=>{}); localStorage.removeItem('driver_trip_id'); setActiveTripId(null); }
                    }
