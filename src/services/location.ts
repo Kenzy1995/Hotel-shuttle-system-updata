@@ -7,12 +7,12 @@ const API_BASE = "https://driver-api2-995728097341.asia-east1.run.app";
 let lastSentTime = 0;
 let lastSentLocation: { lat: number; lng: number; timestamp: number } | null = null;
 
-export const sendCurrentLocation = async (force: boolean = false, minIntervalMs: number = 3 * 60 * 1000) => {
+export const sendCurrentLocation = async (tripId: string | null = null, forceSend: boolean = false, minIntervalMs: number = 3 * 60 * 1000) => {
   try {
     const now = Date.now();
     
     // 如果不是強制發送，檢查間隔時間
-    if (!force && lastSentTime > 0 && (now - lastSentTime) < minIntervalMs) {
+    if (!forceSend && lastSentTime > 0 && (now - lastSentTime) < minIntervalMs) {
       // 如果間隔時間未到，返回上次的位置（如果有的話）
       return lastSentLocation;
     }
@@ -22,9 +22,10 @@ export const sendCurrentLocation = async (force: boolean = false, minIntervalMs:
     await axios.post(`${API_BASE}/api/driver/location`, {
       lat: coordinates.coords.latitude,
       lng: coordinates.coords.longitude,
-      timestamp: coordinates.timestamp
+      timestamp: coordinates.timestamp,
+      trip_id: tripId // Pass trip_id
     });
-    console.log('Location sent:', coordinates.coords.latitude, coordinates.coords.longitude);
+    console.log('Location sent:', coordinates.coords.latitude, coordinates.coords.longitude, 'Trip ID:', tripId);
     
     const location = {
       lat: coordinates.coords.latitude,
@@ -47,7 +48,7 @@ let history: Array<{ ts: number; lat: number; lng: number }> = [];
 const MAX_WINDOW_MS = 30 * 60 * 1000;
 const MIN_DISTANCE_M = 500;
 
-export const shouldAutoShutdown = (lat: number, lng: number, ts: number, windowMs = MAX_WINDOW_MS, minDistanceM = MIN_DISTANCE_M): boolean => {
+export const shouldAutoShutdown = (lat: number, lng: number, ts: number, windowMs: number = MAX_WINDOW_MS, minDistanceM: number = MIN_DISTANCE_M): boolean => {
   // append
   history.push({ ts, lat, lng });
   // keep last 30 min

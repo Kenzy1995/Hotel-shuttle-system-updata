@@ -663,8 +663,9 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     if (gpsLoopRef.current) clearInterval(gpsLoopRef.current);
     const runGps = async () => {
       if (!gpsSystemEnabled || !gpsEnabled) return;
-      // 按間隔發送（非強制，會檢查間隔時間）
-      const res = await sendCurrentLocation(false, Math.max(3, gpsInterval) * 60 * 1000);
+      // 按間隔發送（非強制，會檢查間隔時間），包含 tripId
+      const tripId = currentTrip?.id || null;
+      const res = await sendCurrentLocation(tripId, false, Math.max(3, gpsInterval) * 60 * 1000);
       if (res && autoShutdownEnabled) {
         const windowMs = Math.max(1, autoShutdownMinutes) * 60 * 1000;
         const minDist = Math.max(1, autoShutdownDistance);
@@ -685,7 +686,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     const intervalMs = Math.max(3, gpsInterval) * 60 * 1000;
     gpsLoopRef.current = setInterval(runGps, intervalMs);
     return () => { if (gpsLoopRef.current) clearInterval(gpsLoopRef.current); };
-  }, [gpsSystemEnabled, gpsEnabled, gpsInterval, autoShutdownEnabled, autoShutdownMinutes, autoShutdownDistance]);
+  }, [gpsSystemEnabled, gpsEnabled, gpsInterval, autoShutdownEnabled, autoShutdownMinutes, autoShutdownDistance, currentTrip]);
   useEffect(() => {
     localStorage.setItem('auto_shutdown_enabled', String(autoShutdownEnabled));
   }, [autoShutdownEnabled]);
@@ -709,10 +710,11 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
 
   const loadData = async () => {
     try {
-      // 如果有API調用且GPS已啟用，一次性發送GPS位置
+      // 如果有API調用且GPS已啟用，一次性發送GPS位置（包含 tripId）
       if (gpsSystemEnabled && gpsEnabled) {
         try {
-          await sendCurrentLocation(true); // 強制發送
+          const tripId = currentTrip?.id || null;
+          await sendCurrentLocation(tripId, true); // 強制發送
         } catch (e) {
           console.error("GPS send error during data load", e);
         }
@@ -955,10 +957,11 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     if (!pendingCheckin) return;
 
     try {
-      // 如果有API調用且GPS已啟用，一次性發送GPS位置
+      // 如果有API調用且GPS已啟用，一次性發送GPS位置（包含 tripId）
       if (gpsSystemEnabled && gpsEnabled) {
         try {
-          await sendCurrentLocation(true); // 強制發送
+          const tripId = currentTrip?.id || null;
+          await sendCurrentLocation(tripId, true); // 強制發送
         } catch (e) {
           console.error("GPS send error during checkin", e);
         }
@@ -967,6 +970,16 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
       const result = await confirmBoarding(pendingCheckin.qrcode);
       if (result.success && result.passenger) {
         setToastMessage(`確認上車: ${result.passenger.name} (${result.passenger.pax}人)`);
+        
+        // 強制發送 GPS（API 調用時一次性發送）
+        if (gpsSystemEnabled && gpsEnabled) {
+          try {
+            const tripId = currentTrip?.id || null;
+            await sendCurrentLocation(tripId, true);
+          } catch (e) {
+            console.error("GPS send error during confirmBoarding", e);
+          }
+        }
         
         // Update local state immediately (Optimistic UI)
         const updatePaxStatus = (list: Passenger[]) => list.map(p => 
@@ -1981,11 +1994,23 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                     setPassengers(prev => updateList(prev));
                     setAllPassengers(prev => updateList(prev));
                     setAllTripPassengers(prev => updateList(prev));
-                    // 如果有API調用且GPS已啟用，一次性發送GPS位置
+                    // 如果有API調用且GPS已啟用，一次性發送GPS位置（包含 tripId）
                     if (gpsSystemEnabled && gpsEnabled) {
-                      sendCurrentLocation(true).catch(()=>{});
+                      const tripId = currentTrip?.id || null;
+                      sendCurrentLocation(tripId, true).catch(()=>{});
                     }
-                    import('../services/api').then(api => api.markNoShow(bookingId)).catch(()=>{});
+                    import('../services/api').then(async api => {
+                      await api.markNoShow(bookingId);
+                      // 強制發送 GPS（API 調用時一次性發送）
+                      if (gpsSystemEnabled && gpsEnabled) {
+                        try {
+                          const tripId = currentTrip?.id || null;
+                          await sendCurrentLocation(tripId, true);
+                        } catch (e) {
+                          console.error("GPS send error during markNoShow", e);
+                        }
+                      }
+                    }).catch(()=>{});
                  }}>{noShowModal.countdown>0 ? `確認(${noShowModal.countdown})` : '確認'}</button>
               </div>
            </div>
@@ -2010,11 +2035,23 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                     setPassengers(prev => updateList(prev));
                     setAllPassengers(prev => updateList(prev));
                     setAllTripPassengers(prev => updateList(prev));
-                    // 如果有API調用且GPS已啟用，一次性發送GPS位置
+                    // 如果有API調用且GPS已啟用，一次性發送GPS位置（包含 tripId）
                     if (gpsSystemEnabled && gpsEnabled) {
-                      sendCurrentLocation(true).catch(()=>{});
+                      const tripId = currentTrip?.id || null;
+                      sendCurrentLocation(tripId, true).catch(()=>{});
                     }
-                    import('../services/api').then(api => api.markManualBoarding(bookingId)).catch(()=>{});
+                    import('../services/api').then(async api => {
+                      await api.markManualBoarding(bookingId);
+                      // 強制發送 GPS（API 調用時一次性發送）
+                      if (gpsSystemEnabled && gpsEnabled) {
+                        try {
+                          const tripId = currentTrip?.id || null;
+                          await sendCurrentLocation(tripId, true);
+                        } catch (e) {
+                          console.error("GPS send error during markManualBoarding", e);
+                        }
+                      }
+                    }).catch(()=>{});
                  }}>{manualModal.countdown>0 ? `確認(${manualModal.countdown})` : '確認'}</button>
               </div>
            </div>
