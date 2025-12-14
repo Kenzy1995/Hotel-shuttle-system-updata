@@ -906,7 +906,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
         // 如果有API調用且GPS已啟用，一次性發送GPS位置
         if (gpsSystemEnabled && gpsEnabled) {
           try {
-            await sendCurrentLocation(true); // 強制發送
+            await sendCurrentLocation(currentTrip?.id || null, true); // 強制發送
           } catch (e) {
             console.error("GPS send error during flush", e);
           }
