@@ -379,6 +379,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
       setShowRoleModal(false);
       setGpsEnabled(false);
       localStorage.setItem('gps_enabled', 'false');
+      gpsEnabledStartTimeRef.current = null;
     }
   }, [gpsSystemEnabled]);
 
@@ -423,6 +424,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     if (userRole === 'desk') {
       setGpsEnabled(false);
       localStorage.setItem('gps_enabled', 'false');
+      gpsEnabledStartTimeRef.current = null;
     }
   }, [userRole]);
 
