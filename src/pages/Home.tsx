@@ -659,6 +659,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
   }, [updateRequired, dataInterval, appActive]);
 
   // GPS定位邏輯：如果沒有API調用，則按間隔發送（預設3分鐘，可在開發選項調整）
+  // 自動關閉定位邏輯：只會關閉，不會阻擋開啟
   useEffect(() => {
     if (gpsLoopRef.current) clearInterval(gpsLoopRef.current);
     const runGps = async () => {
@@ -666,16 +667,31 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
       // 按間隔發送（非強制，會檢查間隔時間），包含 tripId
       const tripId = currentTrip?.id || null;
       const res = await sendCurrentLocation(tripId, false, Math.max(3, gpsInterval) * 60 * 1000);
-      if (res && autoShutdownEnabled) {
+      // 自動關閉定位：只在GPS已經開啟且自動關閉功能啟用時才檢查
+      // 這個檢查不會阻擋手動開啟或出車開始時的開啟
+      if (res && autoShutdownEnabled && gpsEnabled) {
         const windowMs = Math.max(1, autoShutdownMinutes) * 60 * 1000;
         const minDist = Math.max(1, autoShutdownDistance);
         const stop = shouldAutoShutdown(res.lat, res.lng, res.timestamp, windowMs, minDist);
         if (stop) {
+          // 只關閉GPS，不會阻止後續的開啟操作
           setGpsEnabled(false);
           localStorage.setItem('gps_enabled', 'false');
-          setToastContext('default');
-          setToastSuccess(true);
-          setToastMessage(`已自動關閉定位（${autoShutdownMinutes} 分鐘位移 < ${autoShutdownDistance} 公尺）`);
+          // 如果是在出車中，自動結束出車
+          if (currentTrip) {
+            try {
+              await completeGoogleTrip(currentTrip.id);
+              setToastContext('default');
+              setToastSuccess(true);
+              setToastMessage(`已自動結束出車（${autoShutdownMinutes} 分鐘位移 < ${autoShutdownDistance} 公尺）`);
+            } catch (e) {
+              console.error('Auto complete trip error:', e);
+            }
+          } else {
+            setToastContext('default');
+            setToastSuccess(true);
+            setToastMessage(`已自動關閉定位（${autoShutdownMinutes} 分鐘位移 < ${autoShutdownDistance} 公尺）`);
+          }
         }
       }
     };
@@ -1529,7 +1545,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                         (window as any).__dev_click_count = 0;
                       }
                     }}>
-                       <div className="section-title">
+                       <div className="section-title" style={{color: '#999'}}>
                          <IonIcon icon={constructOutline} style={{marginRight: 8}} />
                          開發選項
                        </div>
@@ -1556,67 +1572,83 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                             </div>
                           </div>
                           
-                          {/* GPS定位發送開關 */}
-                          <div className="menu-item column-item">
-                            <span className="menu-label">GPS定位發送</span>
-                            <label className="toggle-switch">
-                              <input type="checkbox" checked={gpsEnabled} disabled={!gpsSystemEnabled} onChange={e => {
-                                const val = e.target.checked;
-                                setGpsEnabled(val);
-                                localStorage.setItem('gps_enabled', String(val));
-                              }} />
-                              <span className="slider"></span>
-                            </label>
-                            <div style={{fontSize: '12px', color: '#999', marginTop: '4px'}}>
-                              出車開始時自動打開，出車結束時自動關閉
-                            </div>
-                          </div>
+                          {/* GPS定位發送開關（層級結構） */}
+                          {gpsSystemEnabled && (
+                            <>
+                              <div className="menu-item column-item" style={{paddingLeft: '24px', borderLeft: '2px solid #e0e0e0'}}>
+                                <span className="menu-label">GPS定位發送</span>
+                                <label className="toggle-switch">
+                                  <input type="checkbox" checked={gpsEnabled} onChange={e => {
+                                    const val = e.target.checked;
+                                    setGpsEnabled(val);
+                                    localStorage.setItem('gps_enabled', String(val));
+                                  }} />
+                                  <span className="slider"></span>
+                                </label>
+                                <div style={{fontSize: '12px', color: '#999', marginTop: '4px'}}>
+                                  出車開始時自動打開，出車結束時自動關閉
+                                </div>
+                              </div>
+                              
+                              {/* GPS發送間隔設置（只在GPS定位發送開啟時顯示） */}
+                              {gpsEnabled && (
+                                <div className="menu-item column-item" style={{paddingLeft: '24px', borderLeft: '2px solid #e0e0e0'}}>
+                                  <span className="menu-label">更新頻率</span>
+                                  <div className="input-row">
+                                    <input 
+                                      type="number" 
+                                      min={3} 
+                                      value={gpsInterval} 
+                                      onChange={e => {
+                                        const v = Math.max(3, parseInt(e.target.value || '3', 10));
+                                        setGpsInterval(v);
+                                        localStorage.setItem('gps_update_interval', String(v));
+                                      }} 
+                                      style={{maxWidth: '120px'}}
+                                    />
+                                    <span style={{fontSize: '14px', color: '#666'}}>分鐘</span>
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
                           
-                          {/* GPS發送間隔設置 */}
-                          <div className="menu-item column-item">
-                            <span className="menu-label">GPS發送間隔（分鐘）</span>
-                            <div className="input-row">
-                              <input 
-                                type="number" 
-                                min={3} 
-                                value={gpsInterval} 
-                                onChange={e => {
-                                  const v = Math.max(3, parseInt(e.target.value || '3', 10));
-                                  setGpsInterval(v);
-                                  localStorage.setItem('gps_update_interval', String(v));
-                                }} 
-                              />
-                              <span style={{fontSize: '14px', color: '#666'}}>分鐘（最低3分鐘）</span>
-                            </div>
-                          </div>
-                          
-                          <div className="menu-item column-item">
-                            <span className="menu-label">自動關閉定位</span>
-                            <label className="toggle-switch">
-                              <input type="checkbox" checked={autoShutdownEnabled} onChange={e => setAutoShutdownEnabled(e.target.checked)} />
-                              <span className="slider"></span>
-                            </label>
-                          </div>
-                          <div className="menu-item column-item">
-                            <span className="menu-label">判定時間（分鐘）</span>
-                            <div className="input-row">
-                              <input type="number" min={1} value={autoShutdownMinutes} onChange={e => {
-                                const v = Math.max(1, parseInt(e.target.value || '1', 10));
-                                setAutoShutdownMinutes(v);
-                              }} />
-                              <span style={{fontSize: '14px', color: '#666'}}>分鐘</span>
-                            </div>
-                          </div>
-                          <div className="menu-item column-item">
-                            <span className="menu-label">最小位移（公尺）</span>
-                            <div className="input-row">
-                              <input type="number" min={1} value={autoShutdownDistance} onChange={e => {
-                                const v = Math.max(1, parseInt(e.target.value || '1', 10));
-                                setAutoShutdownDistance(v);
-                              }} />
-                              <span style={{fontSize: '14px', color: '#666'}}>公尺</span>
-                            </div>
-                          </div>
+                          {/* 自動關閉定位（層級結構） */}
+                          {gpsSystemEnabled && (
+                            <>
+                              <div className="menu-item column-item" style={{paddingLeft: '24px', borderLeft: '2px solid #e0e0e0'}}>
+                                <span className="menu-label">自動關閉定位</span>
+                                <label className="toggle-switch">
+                                  <input type="checkbox" checked={autoShutdownEnabled} onChange={e => setAutoShutdownEnabled(e.target.checked)} />
+                                  <span className="slider"></span>
+                                </label>
+                              </div>
+                              {autoShutdownEnabled && (
+                                <>
+                                  <div className="menu-item column-item" style={{paddingLeft: '48px', borderLeft: '2px solid #e0e0e0'}}>
+                                    <span className="menu-label">判定時間</span>
+                                    <div className="input-row">
+                                      <input type="number" min={1} value={autoShutdownMinutes} onChange={e => {
+                                        const v = Math.max(1, parseInt(e.target.value || '1', 10));
+                                        setAutoShutdownMinutes(v);
+                                      }} style={{maxWidth: '120px'}} />
+                                      <span style={{fontSize: '14px', color: '#666'}}>分鐘</span>
+                                    </div>
+                                  </div>
+                                  <div className="menu-item column-item" style={{paddingLeft: '48px', borderLeft: '2px solid #e0e0e0'}}>
+                                    <span className="menu-label">最小位移</span>
+                                    <div className="input-row">
+                                      <input type="number" min={1} value={autoShutdownDistance} onChange={e => {
+                                        const v = Math.max(1, parseInt(e.target.value || '1', 10));
+                                        setAutoShutdownDistance(v);
+                                      }} style={{maxWidth: '120px'}} />
+                                      <span style={{fontSize: '14px', color: '#666'}}>公尺</span>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </>
+                          )}
                        </div>
                     )}
                 </div>

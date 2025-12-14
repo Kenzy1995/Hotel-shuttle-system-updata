@@ -12,9 +12,9 @@ export const ensureNotificationChannel = async (
       id: channelId,
       name: '班次提醒',
       description: '即將發車提醒',
-      importance: 5,
+      importance: 5, // HIGH importance to ensure vibration works
       sound: soundName,
-      vibration: true,
+      vibration: true, // 確保所有音效都啟用震動
       visibility: 1,
       lights: true
     });
@@ -57,15 +57,13 @@ export const scheduleDepartureNotification = async (
         schedule: { at: notifyTime },
         channelId: channelId,
         sound: soundPath,
-        smallIcon: Capacitor.getPlatform() === 'android' ? 'ic_launcher' : undefined,
+        smallIcon: Capacitor.getPlatform() === 'android' ? 'ic_notification' : undefined, // 使用符合安卓樣式的通知圖標
         largeIcon: Capacitor.getPlatform() === 'android' ? 'ic_notification_large' : undefined,
         iconColor: Capacitor.getPlatform() === 'android' ? '#0b63ce' : undefined,
         attachments: undefined,
         actionTypeId: "",
         extra: null,
-        // Android specific channel configuration might be needed for custom sounds in some versions,
-        // but often 'sound' property is enough if the channel is created with sound importance.
-        // Capacitor 6 might handle this, but let's stick to basic property first.
+        // 確保震動在所有音效下都能正常工作
       }
     ]
   });

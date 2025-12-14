@@ -202,7 +202,7 @@ header .right {
   display: flex;
 }
 .sidebar-content {
-  width: 272px; /* 縮小到85% (320px * 0.85 = 272px) */
+  width: 239px; /* 再減少12% (272px * 0.88 = 239px) */
   background: #fff;
   height: 100%;
   box-shadow: 2px 0 8px rgba(0,0,0,0.2);
@@ -331,7 +331,7 @@ input:checked + .slider:before {
   gap: 10px;
 }
 .input-row input {
-  flex: 1;
+  width: 120px; /* 統一輸入框寬度 */
   padding: 8px;
   border-radius: 6px;
   border: 1px solid #ddd;
