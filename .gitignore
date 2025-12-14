@@ -4,22 +4,10 @@ npm-debug.log*
 yarn-debug.log*
 
 # Build outputs
-ShuttleBookingApp/dist/
-ShuttleBookingApp/build/
 dist/
 build/
-# APK files (but keep release APKs in releases folder)
-*.apk
-!releases/*.apk
 
 # Android
-ShuttleBookingApp/android/app/build/
-ShuttleBookingApp/android/.gradle/
-ShuttleBookingApp/android/local.properties
-ShuttleBookingApp/android/captures/
-ShuttleBookingApp/android/.idea/
-ShuttleBookingApp/android/*.iml
-ShuttleBookingApp/android/capacitor-cordova-android-plugins/build/
 android/app/build/
 android/.gradle/
 android/local.properties
