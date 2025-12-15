@@ -201,8 +201,10 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     return 'driverA';
   });
   const [showRoleModal, setShowRoleModal] = useState(() => {
+    // 如果剛登入且沒有保存的 user_role，則顯示彈窗
     const saved = localStorage.getItem('user_role');
-    return !saved;
+    const justLoggedIn = localStorage.getItem('auth_ok') === '1' && !saved;
+    return justLoggedIn;
   });
   const [roleCountdown, setRoleCountdown] = useState(2);
   const [notificationMinutes, setNotificationMinutes] = useState(() => {
@@ -1654,9 +1656,16 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                       min={3} 
                                       value={gpsInterval} 
                                       onChange={e => {
-                                        const v = Math.max(3, parseInt(e.target.value || '3', 10));
-                                        setGpsInterval(v);
-                                        localStorage.setItem('gps_update_interval', String(v));
+                                        let val = parseInt(e.target.value || '3', 10);
+                                        if (isNaN(val)) return;
+                                        if (val < 3) val = 3;
+                                        setGpsInterval(val);
+                                        localStorage.setItem('gps_update_interval', String(val));
+                                        if (parseInt(e.target.value) < 3) { 
+                                          setToastContext('default'); 
+                                          setToastSuccess(true); 
+                                          setToastMessage('最低3分鐘'); 
+                                        }
                                       }} 
                                       style={{maxWidth: '80px', width: '80px'}}
                                     />
