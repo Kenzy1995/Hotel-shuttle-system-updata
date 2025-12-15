@@ -64,17 +64,9 @@ export const scheduleDepartureNotification = async (
         attachments: undefined,
         actionTypeId: "",
         extra: null,
-        // 確保震動在所有音效下都能正常工作
+        // 注意：震動應該在通知真正觸發時執行，而不是在排程時
+        // 震動將通過 LocalNotifications.addListener('localNotificationReceived') 監聽器觸發
       }
     ]
   });
-  
-  // 確保所有音效都觸發震動（特別是音效2和3）
-  if (Capacitor.getPlatform() === 'android') {
-    try {
-      await Haptics.vibrate({ duration: 200 });
-    } catch (e) {
-      console.error('Haptics vibrate error:', e);
-    }
-  }
 };
