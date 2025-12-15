@@ -8,6 +8,11 @@ const Login: React.FC = () => {
   const history = useHistory();
   const [user, setUser] = useState('Admin');
   const [pass, setPass] = useState('');
+  const [userRole, setUserRole] = useState<'desk' | 'driverA'>(() => {
+    const saved = localStorage.getItem('user_role');
+    if (saved === 'desk') return 'desk';
+    return 'driverA';
+  });
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [toastColor, setToastColor] = useState<'success' | 'danger'>('success');
 
@@ -16,6 +21,7 @@ const Login: React.FC = () => {
     try { await Haptics.vibrate({ duration: 30 }); } catch {}
     if (ok) {
       localStorage.setItem('auth_ok', '1');
+      localStorage.setItem('user_role', userRole);
       setToastColor('success');
       setToastMsg('登入成功');
       setTimeout(() => history.replace('/home'), 300);
