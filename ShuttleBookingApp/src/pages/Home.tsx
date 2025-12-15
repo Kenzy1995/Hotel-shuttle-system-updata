@@ -2312,9 +2312,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
           <div className="pm-desc">請選擇本裝置使用者身分（必選）：</div>
           <div style={{display:'flex', gap:'10px', marginTop:'8px', flexWrap:'wrap'}}>
             <button className={`role-btn ${userRole==='desk' ? 'selected' : ''}`} onClick={() => setUserRole('desk')}>櫃台人員</button>
-            <button className={`role-btn ${userRole==='driverA' ? 'selected' : ''}`} onClick={() => setUserRole('driverA')}>司機A</button>
-            <button className={`role-btn ${userRole==='driverB' ? 'selected' : ''}`} onClick={() => setUserRole('driverB')}>司機B</button>
-            <button className={`role-btn ${userRole==='driverC' ? 'selected' : ''}`} onClick={() => setUserRole('driverC')}>司機C</button>
+            <button className={`role-btn ${userRole==='driverA' ? 'selected' : ''}`} onClick={() => setUserRole('driverA')}>接駁司機</button>
           </div>
           <div style={{marginTop:'8px', fontSize:'12px', color:'#777', textAlign:'center'}}>*櫃台人員將永久關閉GPS定位系統</div>
           <div style={{display:'flex', gap:'8px', justifyContent:'flex-end', marginTop:'12px'}}>
