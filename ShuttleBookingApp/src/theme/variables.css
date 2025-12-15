@@ -202,7 +202,7 @@ header .right {
   display: flex;
 }
 .sidebar-content {
-  width: 266px; /* 增加15% (231px * 1.15 = 265.65px ≈ 266px) */
+  width: 293px; /* 再增加10% (266px * 1.1 = 292.6px ≈ 293px) */
   background: #fff;
   height: 100%;
   box-shadow: 2px 0 8px rgba(0,0,0,0.2);
