@@ -298,6 +298,31 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
   useEffect(() => {
     checkPermissions();
     ensureNotificationChannel(selectedSound);
+    
+    // 監聽通知觸發事件，在通知真正顯示時觸發震動
+    const addNotificationReceivedListener = async () => {
+      try {
+        await LocalNotifications.addListener('localNotificationReceived', (notification) => {
+          // 當通知真正觸發時，觸發震動
+          if (Capacitor.getPlatform() === 'android') {
+            try {
+              Haptics.vibrate({ duration: 200 }).catch(e => console.error('Haptics vibrate error:', e));
+            } catch (e) {
+              console.error('Haptics vibrate error:', e);
+            }
+          }
+        });
+      } catch (e) {
+        console.error('Failed to add notification listener:', e);
+      }
+    };
+    
+    addNotificationReceivedListener();
+    
+    // 清理監聽器
+    return () => {
+      LocalNotifications.removeAllListeners().catch(() => {});
+    };
   }, []);
 
   const checkPermissions = async () => {
@@ -1525,7 +1550,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                     {expandedSection === 'font' && (
                        <div className="section-content">
                           <div className="menu-item column-item">
-                              <span className="menu-label">字體縮放（50% - 200%）</span>
+                              <span className="menu-label">字體縮放（50%~200%）</span>
                               <div className="font-size-controls" style={{width:'100%'}}>
                                 <input 
                                   type="range" 
