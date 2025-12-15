@@ -2315,7 +2315,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
 
   {/* Role Select Modal (first run) */}
       {showRoleModal && (
-    <div className="permission-modal-overlay" style={{zIndex: 1300, display: gpsSystemEnabled ? 'flex' : 'none', alignItems:'center', justifyContent:'center', position:'fixed', inset:0}}>
+    <div className="permission-modal-overlay" style={{zIndex: 1300, display: 'flex', alignItems:'center', justifyContent:'center', position:'fixed', inset:0}}>
        <div className="permission-modal">
           <div className="pm-title">選擇使用者身分</div>
           <div className="pm-desc">請選擇本裝置使用者身分（必選）：</div>
