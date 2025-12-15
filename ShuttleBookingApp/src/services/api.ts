@@ -317,6 +317,7 @@ export const fetchTripRoute = async (mainDatetime: string): Promise<{ stops: Arr
 export const startGoogleTripStart = async (params: {
   main_datetime: string;
   driver_role?: string;
+  stops?: string[]; // 新增：從APP傳遞的停靠站點列表
 }): Promise<{ trip_id?: string; share_url?: string; stops?: Array<{ id: string; lat: number; lng: number }> }> => {
   try {
     const res = await axios.post(`${API_BASE}/api/driver/google/trip_start`, params);
@@ -327,10 +328,14 @@ export const startGoogleTripStart = async (params: {
   }
 };
 
-export const completeGoogleTrip = async (tripId: string): Promise<boolean> => {
+export const completeGoogleTrip = async (tripId: string, mainDatetime?: string): Promise<boolean> => {
   try {
     const role = localStorage.getItem('user_role') || 'driverA';
-    const res = await axios.post(`${API_BASE}/api/driver/google/trip_complete`, { trip_id: tripId, driver_role: role });
+    const res = await axios.post(`${API_BASE}/api/driver/google/trip_complete`, { 
+      trip_id: tripId, 
+      driver_role: role,
+      main_datetime: mainDatetime || tripId // 如果沒有提供 main_datetime，使用 trip_id
+    });
     return res.data && res.data.status === 'success';
   } catch (e) {
     console.error(e);

@@ -13,6 +13,8 @@ import MapView from '../components/MapView';
 import Scanner from '../components/Scanner';
 import { fetchAllData, confirmBoarding, Trip, Passenger, findNearestTripFromNow, startGoogleTripStart, completeGoogleTrip } from '../services/api';
 import { sendCurrentLocation, shouldAutoShutdown } from '../services/location';
+import axios from 'axios';
+const API_BASE = "https://driver-api2-995728097341.asia-east1.run.app";
 import { scheduleDepartureNotification, ensureNotificationChannel } from '../services/notification';
 import { HyperTrack } from '../plugins/hypertrack';
 
@@ -212,6 +214,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     return saved ? parseInt(saved, 10) : 30;
   });
   const [gpsSystemEnabled, setGpsSystemEnabled] = useState(() => {
+    // 不再因為櫃台人員而強制關閉總開關，只關閉GPS定位發送和自動關閉定位
     const saved = localStorage.getItem('gps_system_enabled');
     return saved !== null ? saved === 'true' : true;
   });
@@ -305,10 +308,11 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     const addNotificationReceivedListener = async () => {
       try {
         await LocalNotifications.addListener('localNotificationReceived', (notification) => {
-          // 當通知真正觸發時，觸發震動
+          // 當通知真正觸發時，觸發震動（統一為長震一下，500ms）
           if (Capacitor.getPlatform() === 'android') {
             try {
-              Haptics.vibrate({ duration: 200 }).catch(e => console.error('Haptics vibrate error:', e));
+              // 統一為長震一下（500ms）
+              Haptics.vibrate({ duration: 500 }).catch(e => console.error('Haptics vibrate error:', e));
             } catch (e) {
               console.error('Haptics vibrate error:', e);
             }
@@ -449,9 +453,12 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
 
   // Enforce GPS disabled for desk role
   useEffect(() => {
+    // 櫃台人員時，只關閉GPS定位發送和自動關閉定位，不關閉總開關
     if (userRole === 'desk') {
       setGpsEnabled(false);
+      setAutoShutdownEnabled(false);
       localStorage.setItem('gps_enabled', 'false');
+      localStorage.setItem('auto_shutdown_enabled', 'false');
       gpsEnabledStartTimeRef.current = null;
     }
   }, [userRole]);
@@ -722,7 +729,8 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
             // 如果是在出車中，自動結束出車
             if (currentTrip) {
               try {
-                await completeGoogleTrip(currentTrip.id);
+                const dt = `${currentTrip.date.replace(/-/g,'/')}` + ' ' + `${currentTrip.time}`;
+                await completeGoogleTrip(currentTrip.id, dt);
                 setToastContext('default');
                 setToastSuccess(true);
                 setToastMessage(`已自動結束出車（${autoShutdownMinutes} 分鐘位移 < ${autoShutdownDistance} 公尺）`);
@@ -1441,7 +1449,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                              <button className={`role-btn ${userRole==='desk' ? 'selected' : ''}`} onClick={() => { setUserRole('desk'); localStorage.setItem('user_role','desk'); }}>櫃台人員</button>
                              <button className={`role-btn ${userRole==='driverA' ? 'selected' : ''}`} onClick={() => { setUserRole('driverA'); localStorage.setItem('user_role','driverA'); }}>接駁司機</button>
                           </div>
-                          <div style={{fontSize:'12px', color:'#777', marginTop:'4px', textAlign:'center'}}>*櫃台人員將永久關閉GPS定位系統</div>
+                          <div style={{fontSize:'12px', color:'#777', marginTop:'4px', textAlign:'center'}}>*櫃台人員將關閉GPS定位發送功能</div>
                        </div>
                     )}
                  </div>
@@ -1468,14 +1476,14 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                          <div className="menu-item column-item" style={{marginTop: 10}}>
                             <span className="menu-label">欄寬</span>
                             <div className="input-row" style={{alignItems:'center', gap:'8px'}}>
-                              <input type="range" min="0.8" max="1.6" step="0.05" value={colScale} onChange={e => { const v = parseFloat(e.target.value); setColScale(v); localStorage.setItem('col_scale', String(v)); }} />
+                              <input type="range" min="0.8" max="1.6" step="0.05" value={colScale} onChange={e => { const v = parseFloat(e.target.value); setColScale(v); localStorage.setItem('col_scale', String(v)); }} style={{width:'100%', maxWidth:'100%'}} />
                               <span style={{fontSize: 12, color: '#666'}}>{Math.round(colScale*100)}%</span>
                             </div>
                          </div>
                          <div className="menu-item column-item">
                             <span className="menu-label">欄高</span>
                             <div className="input-row" style={{alignItems:'center', gap:'8px'}}>
-                              <input type="range" min="0.8" max="1.6" step="0.05" value={rowScale} onChange={e => { const v = parseFloat(e.target.value); setRowScale(v); localStorage.setItem('row_scale', String(v)); }} />
+                              <input type="range" min="0.8" max="1.6" step="0.05" value={rowScale} onChange={e => { const v = parseFloat(e.target.value); setRowScale(v); localStorage.setItem('row_scale', String(v)); }} style={{width:'100%', maxWidth:'100%'}} />
                               <span style={{fontSize: 12, color: '#666'}}>{Math.round(rowScale*100)}%</span>
                             </div>
                          </div>
@@ -1499,10 +1507,15 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                              <div className="input-row">
                                  <input 
                                     type="number" 
+                                    min={1}
+                                    max={999}
                                     value={notificationMinutes} 
                                     onChange={e => {
-                                       const val = parseInt(e.target.value);
-                                       if (!isNaN(val) && val > 0) setNotificationMinutes(val);
+                                       let val = parseInt(e.target.value);
+                                       if (isNaN(val)) return;
+                                       if (val < 1) val = 1;
+                                       if (val > 999) val = 999;
+                                       setNotificationMinutes(val);
                                     }}
                                  />
                                  <span style={{fontSize: '14px', color: '#666'}}>分鐘</span>
@@ -1607,15 +1620,19 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                           <div className="menu-item column-item">
                             <span className="menu-label">即時位置（總開關）</span>
                             <label className="toggle-switch">
-                              <input type="checkbox" checked={gpsSystemEnabled} onChange={e => {
-                                const val = e.target.checked;
-                                setGpsSystemEnabled(val);
-                                if (!val) {
-                                  setGpsEnabled(false);
-                                  localStorage.setItem('gps_enabled', 'false');
-                                  gpsEnabledStartTimeRef.current = null;
-                                }
-                              }} />
+                              <input 
+                                type="checkbox" 
+                                checked={gpsSystemEnabled} 
+                                onChange={e => {
+                                  const val = e.target.checked;
+                                  setGpsSystemEnabled(val);
+                                  if (!val) {
+                                    setGpsEnabled(false);
+                                    localStorage.setItem('gps_enabled', 'false');
+                                    gpsEnabledStartTimeRef.current = null;
+                                  }
+                                }} 
+                              />
                               <span className="slider"></span>
                             </label>
                             <div style={{fontSize: '12px', color: '#999', marginTop: '4px'}}>
@@ -1629,20 +1646,26 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                               <div className="menu-item column-item" style={{paddingLeft: '24px', borderLeft: '2px solid #e0e0e0'}}>
                                 <span className="menu-label">GPS定位發送</span>
                                 <label className="toggle-switch">
-                                  <input type="checkbox" checked={gpsEnabled} onChange={e => {
-                                    const val = e.target.checked;
-                                    setGpsEnabled(val);
-                                    localStorage.setItem('gps_enabled', String(val));
-                                    if (val) {
-                                      gpsEnabledStartTimeRef.current = Date.now();
-                                    } else {
-                                      gpsEnabledStartTimeRef.current = null;
-                                    }
-                                  }} />
+                                  <input 
+                                    type="checkbox" 
+                                    checked={gpsEnabled} 
+                                    disabled={userRole === 'desk'}
+                                    onChange={e => {
+                                      if (userRole === 'desk') return;
+                                      const val = e.target.checked;
+                                      setGpsEnabled(val);
+                                      localStorage.setItem('gps_enabled', String(val));
+                                      if (val) {
+                                        gpsEnabledStartTimeRef.current = Date.now();
+                                      } else {
+                                        gpsEnabledStartTimeRef.current = null;
+                                      }
+                                    }} 
+                                  />
                                   <span className="slider"></span>
                                 </label>
                                 <div style={{fontSize: '12px', color: '#999', marginTop: '4px'}}>
-                                  出車開始時自動打開，出車結束時自動關閉
+                                  {userRole === 'desk' ? '櫃台人員無法使用GPS定位發送' : '出車開始時自動打開，出車結束時自動關閉'}
                                 </div>
                               </div>
                               
@@ -1654,11 +1677,13 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                     <input 
                                       type="number" 
                                       min={3} 
+                                      max={999}
                                       value={gpsInterval} 
                                       onChange={e => {
                                         let val = parseInt(e.target.value || '3', 10);
                                         if (isNaN(val)) return;
                                         if (val < 3) val = 3;
+                                        if (val > 999) val = 999;
                                         setGpsInterval(val);
                                         localStorage.setItem('gps_update_interval', String(val));
                                         if (parseInt(e.target.value) < 3) { 
@@ -1682,34 +1707,48 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                               <div className="menu-item column-item" style={{paddingLeft: '24px', borderLeft: '2px solid #e0e0e0'}}>
                                 <span className="menu-label">自動關閉定位</span>
                                 <label className="toggle-switch">
-                                  <input type="checkbox" checked={autoShutdownEnabled} onChange={e => setAutoShutdownEnabled(e.target.checked)} />
+                                  <input 
+                                    type="checkbox" 
+                                    checked={autoShutdownEnabled} 
+                                    disabled={userRole === 'desk'}
+                                    onChange={e => {
+                                      if (userRole === 'desk') return;
+                                      setAutoShutdownEnabled(e.target.checked);
+                                    }} 
+                                  />
                                   <span className="slider"></span>
                                 </label>
                               </div>
-                              {autoShutdownEnabled && (
-                                <>
-                                  <div className="menu-item column-item" style={{paddingLeft: '48px', borderLeft: '2px solid #e0e0e0'}}>
-                                    <span className="menu-label">判定時間</span>
-                                    <div className="input-row">
-                                      <input type="number" min={1} value={autoShutdownMinutes} onChange={e => {
-                                        const v = Math.max(1, parseInt(e.target.value || '1', 10));
-                                        setAutoShutdownMinutes(v);
-                                      }} style={{maxWidth: '80px', width: '80px'}} />
-                                      <span style={{fontSize: '14px', color: '#666'}}>分鐘</span>
-                                    </div>
-                                  </div>
-                                  <div className="menu-item column-item" style={{paddingLeft: '48px', borderLeft: '2px solid #e0e0e0'}}>
-                                    <span className="menu-label">最小位移</span>
-                                    <div className="input-row">
-                                      <input type="number" min={1} value={autoShutdownDistance} onChange={e => {
-                                        const v = Math.max(1, parseInt(e.target.value || '1', 10));
-                                        setAutoShutdownDistance(v);
-                                      }} style={{maxWidth: '80px', width: '80px'}} />
-                                      <span style={{fontSize: '14px', color: '#666'}}>公尺</span>
-                                    </div>
-                                  </div>
-                                </>
-                              )}
+                                  {autoShutdownEnabled && (
+                                    <>
+                                      <div className="menu-item column-item" style={{paddingLeft: '48px', borderLeft: '2px solid #e0e0e0'}}>
+                                        <span className="menu-label">判定時間</span>
+                                        <div className="input-row">
+                                          <input type="number" min={1} max={999} value={autoShutdownMinutes} onChange={e => {
+                                            let v = parseInt(e.target.value || '1', 10);
+                                            if (isNaN(v)) return;
+                                            if (v < 1) v = 1;
+                                            if (v > 999) v = 999;
+                                            setAutoShutdownMinutes(v);
+                                          }} style={{maxWidth: '80px', width: '80px'}} />
+                                          <span style={{fontSize: '14px', color: '#666'}}>分鐘</span>
+                                        </div>
+                                      </div>
+                                      <div className="menu-item column-item" style={{paddingLeft: '48px', borderLeft: '2px solid #e0e0e0'}}>
+                                        <span className="menu-label">最小位移</span>
+                                        <div className="input-row">
+                                          <input type="number" min={1} max={999} value={autoShutdownDistance} onChange={e => {
+                                            let v = parseInt(e.target.value || '1', 10);
+                                            if (isNaN(v)) return;
+                                            if (v < 1) v = 1;
+                                            if (v > 999) v = 999;
+                                            setAutoShutdownDistance(v);
+                                          }} style={{maxWidth: '80px', width: '80px'}} />
+                                          <span style={{fontSize: '14px', color: '#666'}}>公尺</span>
+                                        </div>
+                                      </div>
+                                    </>
+                                  )}
                             </>
                           )}
                        </div>
@@ -1733,11 +1772,13 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                  <input 
                                     type="number" 
                                     min={5}
+                                    max={999}
                                     value={dataInterval} 
                                     onChange={e => {
                                        let val = parseInt(e.target.value);
                                        if (isNaN(val)) return;
                                        if (val < 5) val = 5;
+                                       if (val > 999) val = 999;
                                        setDataInterval(val);
                                        if (parseInt(e.target.value) < 5) { setToastContext('default'); setToastSuccess(true); setToastMessage('API速率限制'); }
                                     }}
@@ -1933,14 +1974,31 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                         }}>上一站</button>
                       )}
                       {flowStep < STATION_ORDER.length-1 ? (
-                        <button className="action-btn action-btn--start" onClick={() => {
+                        <button className="action-btn action-btn--start" onClick={async () => {
                           const nextIdx = (() => {
                             for (let i=flowStep+1;i<STATION_ORDER.length;i++) {
                               if (filterList(passengers).some(p => normalizeStationName(p)===STATION_ORDER[i])) return i;
                             }
                             return flowStep+1;
                           })();
-                          setFlowStep(Math.min(nextIdx, STATION_ORDER.length-1));
+                          const actualNextIdx = Math.min(nextIdx, STATION_ORDER.length-1);
+                          setFlowStep(actualNextIdx);
+                          
+                          // 更新Firebase即將前往的站點（按了下一站表示已經過了當前站點，現在要前往下一站）
+                          if (activeTripId && userRole !== 'desk') {
+                            try {
+                              // 下一站的名稱
+                              const nextStationName = STATION_ORDER[actualNextIdx];
+                              // 更新Firebase的current_trip_station字段，前端HTML會讀取這個來顯示"即將抵達"
+                              await axios.post(`${API_BASE}/api/driver/update_station`, {
+                                trip_id: activeTripId,
+                                current_station: nextStationName
+                              });
+                              console.log('Updated next station to Firebase:', nextStationName);
+                            } catch (e) {
+                              console.error('Update station error:', e);
+                            }
+                          }
                         }}>下一站</button>
                       ) : (
                         <button className="action-btn action-btn--end" onClick={() => setEndConfirm(true)}>出車結束</button>
@@ -2170,29 +2228,47 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                    setFlowStep(firstIdx>=0 ? firstIdx : 0);
                    setFirstStationIdx(firstIdx>=0 ? firstIdx : 0);
 
-                   if (gpsSystemEnabled) {
+                   // 只有接駁司機且GPS系統啟用時才啟動GPS
+                   if (userRole !== 'desk' && gpsSystemEnabled) {
                      try {
                        localStorage.setItem('gps_enabled', 'true');
                        setGpsEnabled(true);
+                       gpsEnabledStartTimeRef.current = Date.now();
                      } catch {}
                    }
                   if (currentTrip) {
                      const dt = `${currentTrip.date.replace(/-/g,'/')}` + ' ' + `${currentTrip.time}`;
                      setToastMessage('已設定為已發車');
-                    // 不再寫入《系統》分頁或更新出車狀態
+                    // 根據乘客資料計算停靠站點（而不是從Sheet讀取）
+                     const filteredPassengers = filterList(passengers);
+                     const stationSet = new Set<string>();
+                     filteredPassengers.forEach(p => {
+                       const stationName = normalizeStationName(p);
+                       stationSet.add(stationName);
+                     });
+                     // 按照STATION_ORDER順序排列
+                     const stopsList = STATION_ORDER.filter(st => stationSet.has(st));
+                     
+                     // 不再寫入《系統》分頁或更新出車狀態
                      (async () => {
                        try {
-                         const resp = await startGoogleTripStart({ main_datetime: dt, driver_role: userRole });
+                         const resp = await startGoogleTripStart({ 
+                           main_datetime: dt, 
+                           driver_role: userRole,
+                           stops: stopsList // 傳遞計算出的停靠站點
+                         });
                          if ((resp as any).trip_id) {
                            setActiveTripId((resp as any).trip_id as string);
                            localStorage.setItem('driver_trip_id', (resp as any).trip_id as string);
                          }
-                         // 啟動 GPS 發送
-                         try { 
-                           localStorage.setItem('gps_enabled', 'true'); 
-                           setGpsEnabled(true);
-                           gpsEnabledStartTimeRef.current = Date.now(); // 記錄 GPS 啟用時間
-                         } catch {}
+                         // 啟動 GPS 發送（只有接駁司機才啟動）
+                         if (userRole !== 'desk' && gpsSystemEnabled) {
+                           try { 
+                             localStorage.setItem('gps_enabled', 'true'); 
+                             setGpsEnabled(true);
+                             gpsEnabledStartTimeRef.current = Date.now(); // 記錄 GPS 啟用時間
+                           } catch {}
+                         }
                          // 分享地圖邏輯移除
                          
                        } catch {}
@@ -2231,7 +2307,12 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                      gpsEnabledStartTimeRef.current = null;
                    } catch {}
                      const tid = activeTripId || localStorage.getItem('driver_trip_id') || '';
-                     if (tid) { completeGoogleTrip(tid).catch(()=>{}); localStorage.removeItem('driver_trip_id'); setActiveTripId(null); }
+                     if (tid) { 
+                       // 傳遞主班次時間給後端，用於更新 Sheet
+                       completeGoogleTrip(tid, dt).catch(()=>{}); 
+                       localStorage.removeItem('driver_trip_id'); 
+                       setActiveTripId(null); 
+                     }
                    }
                 }}>確認</button>
              </div>
@@ -2323,9 +2404,9 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
             <button className={`role-btn ${userRole==='desk' ? 'selected' : ''}`} onClick={() => setUserRole('desk')}>櫃台人員</button>
             <button className={`role-btn ${userRole==='driverA' ? 'selected' : ''}`} onClick={() => setUserRole('driverA')}>接駁司機</button>
           </div>
-          <div style={{marginTop:'8px', fontSize:'12px', color:'#777', textAlign:'center'}}>*櫃台人員將永久關閉GPS定位系統</div>
+          <div style={{marginTop:'8px', fontSize:'12px', color:'#777', textAlign:'center'}}>*櫃台人員將關閉GPS定位發送功能</div>
           <div style={{display:'flex', gap:'8px', justifyContent:'flex-end', marginTop:'12px'}}>
-             <button className="modal-btn primary" disabled={roleCountdown>0} onClick={() => { localStorage.setItem('user_role', userRole); setShowRoleModal(false); }}>{roleCountdown>0 ? `確認(${roleCountdown})` : '確認'}</button>
+             <button className="modal-btn primary" onClick={() => { localStorage.setItem('user_role', userRole); setShowRoleModal(false); }}>確認</button>
                 </div>
        </div>
     </div>
