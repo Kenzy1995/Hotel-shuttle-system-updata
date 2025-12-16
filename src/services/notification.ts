@@ -1,5 +1,6 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
+import { Haptics } from '@capacitor/haptics';
 
 export const ensureNotificationChannel = async (
   soundName: string = 'notify_sound_1'
@@ -12,9 +13,9 @@ export const ensureNotificationChannel = async (
       id: channelId,
       name: '班次提醒',
       description: '即將發車提醒',
-      importance: 5,
+      importance: 5, // HIGH importance to ensure vibration works
       sound: soundName,
-      vibration: true,
+      vibration: true, // 確保所有音效都啟用震動
       visibility: 1,
       lights: true
     });
@@ -57,15 +58,14 @@ export const scheduleDepartureNotification = async (
         schedule: { at: notifyTime },
         channelId: channelId,
         sound: soundPath,
-        smallIcon: Capacitor.getPlatform() === 'android' ? 'ic_launcher' : undefined,
+        smallIcon: Capacitor.getPlatform() === 'android' ? 'ic_notification' : undefined, // 使用符合安卓樣式的通知圖標
         largeIcon: Capacitor.getPlatform() === 'android' ? 'ic_notification_large' : undefined,
         iconColor: Capacitor.getPlatform() === 'android' ? '#0b63ce' : undefined,
         attachments: undefined,
         actionTypeId: "",
         extra: null,
-        // Android specific channel configuration might be needed for custom sounds in some versions,
-        // but often 'sound' property is enough if the channel is created with sound importance.
-        // Capacitor 6 might handle this, but let's stick to basic property first.
+        // 注意：震動應該在通知真正觸發時執行，而不是在排程時
+        // 震動將通過 LocalNotifications.addListener('localNotificationReceived') 監聽器觸發
       }
     ]
   });
