@@ -1,11 +1,31 @@
 import { Geolocation } from '@capacitor/geolocation';
+import { Preferences } from '@capacitor/preferences';
 import axios from 'axios';
+import { HyperTrack, getCurrentLocation as getHyperTrackLocation } from '../plugins/hypertrack';
 
 const API_BASE = "https://driver-api2-995728097341.asia-east1.run.app";
 
 // 追蹤最後一次發送時間，用於間隔發送
 let lastSentTime = 0;
 let lastSentLocation: { lat: number; lng: number; timestamp: number } | null = null;
+
+// 獲取當前選擇的定位方式
+export const getLocationProvider = async (): Promise<'google' | 'hypertrack' | null> => {
+  try {
+    const [googleEnabled, hypertrackEnabled] = await Promise.all([
+      Preferences.get({ key: 'location_provider_google' }),
+      Preferences.get({ key: 'location_provider_hypertrack' })
+    ]);
+    
+    // 優先級：HyperTrack > Google
+    if (hypertrackEnabled.value === 'true') return 'hypertrack';
+    if (googleEnabled.value === 'true') return 'google';
+    return null;
+  } catch (e) {
+    console.error('Error getting location provider:', e);
+    return null;
+  }
+};
 
 export const sendCurrentLocation = async (tripId: string | null = null, forceSend: boolean = false, minIntervalMs: number = 3 * 60 * 1000) => {
   try {
@@ -17,21 +37,60 @@ export const sendCurrentLocation = async (tripId: string | null = null, forceSen
       return lastSentLocation;
     }
     
-    const coordinates = await Geolocation.getCurrentPosition();
-    // Upload to server
-    await axios.post(`${API_BASE}/api/driver/location`, {
-      lat: coordinates.coords.latitude,
-      lng: coordinates.coords.longitude,
-      timestamp: coordinates.timestamp,
-      trip_id: tripId // Pass trip_id
-    });
-    console.log('Location sent:', coordinates.coords.latitude, coordinates.coords.longitude, 'Trip ID:', tripId);
+    // 獲取當前選擇的定位方式
+    const provider = await getLocationProvider();
     
-    const location = {
-      lat: coordinates.coords.latitude,
-      lng: coordinates.coords.longitude,
-      timestamp: coordinates.timestamp
+    let location: { lat: number; lng: number; timestamp: number } | null = null;
+    let deviceId: string | null = null;
+    
+    if (provider === 'hypertrack') {
+      // 使用 HyperTrack 獲取位置
+      const hypertrackLocation = await getHyperTrackLocation();
+      if (hypertrackLocation) {
+        location = hypertrackLocation;
+        // 獲取 HyperTrack device ID
+        deviceId = await HyperTrack.getDeviceId();
+      } else {
+        console.warn('HyperTrack location not available, falling back to Google Geolocation');
+        // 如果 HyperTrack 無法獲取位置，回退到 Google Geolocation
+        const coordinates = await Geolocation.getCurrentPosition();
+        location = {
+          lat: coordinates.coords.latitude,
+          lng: coordinates.coords.longitude,
+          timestamp: coordinates.timestamp
+        };
+      }
+    } else {
+      // 使用 Google Geolocation（預設或明確選擇）
+      const coordinates = await Geolocation.getCurrentPosition();
+      location = {
+        lat: coordinates.coords.latitude,
+        lng: coordinates.coords.longitude,
+        timestamp: coordinates.timestamp
+      };
+    }
+    
+    if (!location) {
+      console.error('Failed to get location from any provider');
+      return null;
+    }
+    
+    // Upload to server，包含 location_provider 參數
+    const payload: any = {
+      lat: location.lat,
+      lng: location.lng,
+      timestamp: location.timestamp,
+      trip_id: tripId,
+      location_provider: provider || 'google'
     };
+    
+    // 如果是 HyperTrack，添加 device_id
+    if (provider === 'hypertrack' && deviceId) {
+      payload.device_id = deviceId;
+    }
+    
+    await axios.post(`${API_BASE}/api/driver/location`, payload);
+    console.log('Location sent:', location.lat, location.lng, 'Trip ID:', tripId, 'Provider:', provider || 'google');
     
     lastSentTime = now;
     lastSentLocation = location;

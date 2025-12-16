@@ -72,7 +72,11 @@ export interface DriverDataResponse {
 
 export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: Passenger[], allPassengers: Passenger[] }> => {
   try {
+    console.log(`[DEBUG fetchAllData] 開始調用 API: ${API_BASE}/api/driver/data`);
     const res = await axios.get(`${API_BASE}/api/driver/data`);
+    console.log(`[DEBUG fetchAllData] API 回應狀態: ${res.status}, 資料類型: ${typeof res.data}`);
+    console.log(`[DEBUG fetchAllData] trips 數量: ${res.data?.trips?.length || 0}, trip_passengers 數量: ${res.data?.trip_passengers?.length || 0}, passenger_list 數量: ${res.data?.passenger_list?.length || 0}`);
+    
     const data: DriverDataResponse = res.data;
 
     const trips: Trip[] = data.trips.map(t => ({
@@ -83,6 +87,8 @@ export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: P
       seats: 0,
       booked: t.total_pax
     }));
+    
+    console.log(`[DEBUG fetchAllData] 轉換後的 trips 數量: ${trips.length}`);
 
     const passengerDetailsMap = new Map<string, typeof data.passenger_list[0]>();
     data.passenger_list.forEach(p => {
@@ -215,9 +221,18 @@ export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: P
       }
     });
 
+    console.log(`[DEBUG fetchAllData] 成功返回: trips=${trips.length}, tripPassengers=${tripPassengers.length}, allPassengers=${allPassengers.length}`);
     return { trips, tripPassengers, allPassengers };
-  } catch (e) {
-    console.error("Fetch All Data Error", e);
+  } catch (e: any) {
+    console.error("[ERROR fetchAllData] API 調用失敗:", e);
+    if (e.response) {
+      console.error(`[ERROR fetchAllData] HTTP 狀態碼: ${e.response.status}, 回應資料:`, e.response.data);
+    } else if (e.request) {
+      console.error("[ERROR fetchAllData] 請求已發送但無回應:", e.request);
+    } else {
+      console.error("[ERROR fetchAllData] 請求設定錯誤:", e.message);
+    }
+    // 返回空陣列，但記錄詳細錯誤以便調試
     return { trips: [], tripPassengers: [], allPassengers: [] };
   }
 };
@@ -340,6 +355,26 @@ export const completeGoogleTrip = async (tripId: string, mainDatetime?: string):
   } catch (e) {
     console.error(e);
     return false;
+  }
+};
+
+export const startHyperTrackTrip = async (params: {
+  main_datetime: string;
+  driver_role?: string;
+  stops?: string[];
+  device_id?: string;
+}): Promise<{ 
+  trip_id?: string; 
+  hypertrack_trip_id?: string;
+  share_url?: string; 
+  stops?: Array<{ lat: number; lng: number; name: string }> 
+}> => {
+  try {
+    const res = await axios.post(`${API_BASE}/api/driver/hypertrack/trip_start`, params);
+    return res.data || {};
+  } catch (e) {
+    console.error("[ERROR startHyperTrackTrip]", e);
+    return {};
   }
 };
 

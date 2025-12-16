@@ -22,3 +22,6 @@ project(':capacitor-preferences').projectDir = new File('../node_modules/@capaci
 
 include ':capacitor-status-bar'
 project(':capacitor-status-bar').projectDir = new File('../node_modules/@capacitor/status-bar/android')
+
+include ':hypertrack-sdk-ionic-capacitor'
+project(':hypertrack-sdk-ionic-capacitor').projectDir = new File('../node_modules/hypertrack-sdk-ionic-capacitor/android')

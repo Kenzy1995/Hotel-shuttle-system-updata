@@ -14,6 +14,10 @@
         android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round">
+        <!-- HyperTrack Publishable Key -->
+        <meta-data
+            android:name="HyperTrackPublishableKey"
+            android:value="ERfVdBvVlLjJCHM2jfFF9Zek_aOssABBrxCYeWXfaJo_6Cm_0f-Ja46Phefj_3LvLpWrp1Hmo1cjB73RWUvzAA" />
         <activity
             android:name="com.forte.driver.MainActivity"
             android:exported="true"

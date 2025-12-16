@@ -1,7 +1,7 @@
 {
   "name": "forte-driver-app",
   "private": true,
-  "version": "1.1.118",
+  "version": "1.1.120",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -26,6 +26,7 @@
     "@ionic/react-router": "^7.0.0",
     "axios": "^1.4.0",
     "html5-qrcode": "^2.3.8",
+    "hypertrack-sdk-ionic-capacitor": "^4.0.5",
     "ionicons": "^7.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
