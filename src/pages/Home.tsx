@@ -2365,8 +2365,26 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                          if (locationProviderHyperTrack) {
                            // HyperTrack 開關已開啟，創建 HyperTrack Trip
                            console.log('[出車開始] HyperTrack 開關已開啟，開始創建 Trip, stops:', stopsList);
+                           
+                           // 1. 初始化 HyperTrack SDK
+                           await HyperTrack.initialize();
+                           console.log('[出車開始] HyperTrack SDK 已初始化');
+                           
+                           // 2. 獲取 Device ID
                            const deviceId = await HyperTrack.getDeviceId();
                            console.log('[出車開始] HyperTrack Device ID:', deviceId);
+                           
+                           if (!deviceId) {
+                             console.error('[出車開始] HyperTrack Device ID 為空，無法創建 Trip');
+                             throw new Error('HyperTrack Device ID not available');
+                           }
+                           
+                           // 3. 設置 Worker Handle（根據官方文檔，這是必需的）
+                           const workerHandle = userRole || deviceId || 'driver';
+                           await HyperTrack.setWorkerHandle(workerHandle);
+                           console.log('[出車開始] HyperTrack Worker Handle 已設置:', workerHandle);
+                           
+                           // 4. 調用 HyperTrack Trip API
                            const resp = await startHyperTrackTrip({ 
                              main_datetime: dt, 
                              driver_role: userRole,
