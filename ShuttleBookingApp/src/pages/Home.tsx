@@ -11,7 +11,7 @@ import { App } from '@capacitor/app';
 import Header from '../components/Header';
 import MapView from '../components/MapView';
 import Scanner from '../components/Scanner';
-import { fetchAllData, confirmBoarding, Trip, Passenger, findNearestTripFromNow, startGoogleTripStart, completeGoogleTrip, startHyperTrackTrip } from '../services/api';
+import { fetchAllData, confirmBoarding, Trip, Passenger, findNearestTripFromNow, startHyperTrackTrip, startGoogleTripStart, completeGoogleTrip } from '../services/api';
 import { sendCurrentLocation, shouldAutoShutdown } from '../services/location';
 import axios from 'axios';
 const API_BASE = "https://driver-api2-995728097341.asia-east1.run.app";
@@ -248,53 +248,22 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
   // Sidebar Expanded Sections
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [deviceIdState, setDeviceIdState] = useState<string>('');
-  
-  // 定位方式開關狀態
-  const [locationProviderGoogle, setLocationProviderGoogle] = useState<boolean>(() => {
-    const saved = localStorage.getItem('location_provider_google');
-    return saved === null ? true : saved === 'true'; // 預設開啟 Google
-  });
-  const [locationProviderHyperTrack, setLocationProviderHyperTrack] = useState<boolean>(() => {
-    const saved = localStorage.getItem('location_provider_hypertrack');
-    return saved === null ? false : saved === 'true'; // 預設關閉 HyperTrack
-  });
-  
-  // 初始化時從 Preferences 同步狀態（確保 location.ts 能讀取到）
-  useEffect(() => {
-    const syncLocationProviders = async () => {
-      try {
-        const [googlePref, hypertrackPref] = await Promise.all([
-          Preferences.get({ key: 'location_provider_google' }),
-          Preferences.get({ key: 'location_provider_hypertrack' })
-        ]);
-        
-        // 如果 Preferences 有值，使用 Preferences；否則使用 localStorage 的值並同步到 Preferences
-        if (googlePref.value !== null) {
-          const googleVal = googlePref.value === 'true';
-          setLocationProviderGoogle(googleVal);
-          localStorage.setItem('location_provider_google', String(googleVal));
-        } else {
-          const googleVal = locationProviderGoogle;
-          await Preferences.set({ key: 'location_provider_google', value: String(googleVal) });
-        }
-        
-        if (hypertrackPref.value !== null) {
-          const hypertrackVal = hypertrackPref.value === 'true';
-          setLocationProviderHyperTrack(hypertrackVal);
-          localStorage.setItem('location_provider_hypertrack', String(hypertrackVal));
-        } else {
-          const hypertrackVal = locationProviderHyperTrack;
-          await Preferences.set({ key: 'location_provider_hypertrack', value: String(hypertrackVal) });
-        }
-      } catch (e) {
-        console.error('Error syncing location providers:', e);
-      }
-    };
-    syncLocationProviders();
-  }, []);
   const [hyperDebug, setHyperDebug] = useState<{ keyLen?: number; deviceId?: string; error?: string }>({});
   const [pluginAvail, setPluginAvail] = useState<boolean>(false);
   const [nativePlatform, setNativePlatform] = useState<boolean>(false);
+  
+  // Google Maps 定位開關
+  const [locationProviderGoogle, setLocationProviderGoogle] = useState(() => {
+    const saved = localStorage.getItem('location_provider_google');
+    return saved === null ? false : saved === 'true';
+  });
+  
+  // HyperTrack 定位開關（預設開啟）
+  const [locationProviderHyperTrack, setLocationProviderHyperTrack] = useState(() => {
+    const saved = localStorage.getItem('location_provider_hypertrack');
+    // 如果沒有保存的值，預設為 true（開啟）
+    return saved === null ? true : saved === 'true';
+  });
 
   const toggleSection = (section: string | null) => {
     setExpandedSection(prev => prev === section ? null : section);
@@ -305,6 +274,47 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     setDeviceIdState('');
     setHyperDebug({ keyLen: 0, deviceId: '', error: undefined });
   }, []);
+  
+  // 初始化定位開關（從 Preferences 讀取）
+  useEffect(() => {
+    (async () => {
+      try {
+        const [googleEnabled, hypertrackEnabled] = await Promise.all([
+          Preferences.get({ key: 'location_provider_google' }),
+          Preferences.get({ key: 'location_provider_hypertrack' })
+        ]);
+        
+        if (googleEnabled.value !== null) {
+          setLocationProviderGoogle(googleEnabled.value === 'true');
+        }
+        
+        if (hypertrackEnabled.value !== null) {
+          setLocationProviderHyperTrack(hypertrackEnabled.value === 'true');
+        } else {
+          // 如果沒有保存的值，預設為 true（開啟）
+          setLocationProviderHyperTrack(true);
+          await Preferences.set({ key: 'location_provider_hypertrack', value: 'true' });
+          localStorage.setItem('location_provider_hypertrack', 'true');
+        }
+      } catch (e) {
+        console.error('Error loading location provider preferences:', e);
+        // 出錯時 HyperTrack 預設為開啟
+        setLocationProviderHyperTrack(true);
+      }
+    })();
+  }, []);
+  
+  // 保存 Google 定位開關到 Preferences 和 localStorage
+  useEffect(() => {
+    localStorage.setItem('location_provider_google', String(locationProviderGoogle));
+    Preferences.set({ key: 'location_provider_google', value: String(locationProviderGoogle) }).catch(() => {});
+  }, [locationProviderGoogle]);
+  
+  // 保存 HyperTrack 定位開關到 Preferences 和 localStorage
+  useEffect(() => {
+    localStorage.setItem('location_provider_hypertrack', String(locationProviderHyperTrack));
+    Preferences.set({ key: 'location_provider_hypertrack', value: String(locationProviderHyperTrack) }).catch(() => {});
+  }, [locationProviderHyperTrack]);
 
   
 
@@ -742,10 +752,12 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
 
   // GPS定位邏輯：如果沒有API調用，則按間隔發送（預設3分鐘，可在開發選項調整）
   // 自動關閉定位邏輯：只會關閉，不會阻擋開啟
+  // 注意：gpsSystemEnabled 只影響 UI 顯示，不影響位置發送
+  // 位置發送只受 gpsEnabled（用戶手動開關）控制
   useEffect(() => {
     if (gpsLoopRef.current) clearInterval(gpsLoopRef.current);
     const runGps = async () => {
-      if (!gpsSystemEnabled || !gpsEnabled) return;
+      if (!gpsEnabled) return;  // 只檢查用戶手動開關，不檢查 gpsSystemEnabled
       // 按間隔發送（非強制，會檢查間隔時間），包含 tripId
       const tripId = currentTrip?.id || null;
       const res = await sendCurrentLocation(tripId, false, Math.max(3, gpsInterval) * 60 * 1000);
@@ -791,7 +803,8 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
       }
     };
     // 如果GPS已啟用，立即發送一次
-    if (gpsSystemEnabled && gpsEnabled) {
+    // 注意：只檢查 gpsEnabled（用戶手動開關），不檢查 gpsSystemEnabled
+    if (gpsEnabled) {
       // 記錄 GPS 啟用時間（如果還沒記錄）
       if (!gpsEnabledStartTimeRef.current) {
         gpsEnabledStartTimeRef.current = Date.now();
@@ -829,7 +842,8 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
   const loadData = async () => {
     try {
       // 如果有API調用且GPS已啟用，一次性發送GPS位置（包含 tripId）
-      if (gpsSystemEnabled && gpsEnabled) {
+      // 注意：只檢查 gpsEnabled（用戶手動開關），不檢查 gpsSystemEnabled
+      if (gpsEnabled) {
         try {
           const tripId = currentTrip?.id || null;
           await sendCurrentLocation(tripId, true); // 強制發送
@@ -838,25 +852,20 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
         }
       }
       
-      console.log("[DEBUG loadData] 開始載入資料...");
       const { trips: t, tripPassengers: tp, allPassengers: ap } = await fetchAllData();
-      console.log(`[DEBUG loadData] 收到資料: trips=${t.length}, tripPassengers=${tp.length}, allPassengers=${ap.length}`);
-      
       setTrips(t);
       setAllPassengers(ap);
       setAllTripPassengers(tp);
+      
+      // 注意：不再從 API 同步 gps_system_enabled，因為 E19 只控制前端顯示，不應影響位置發送
       
       // If we are viewing a specific trip, reload its passengers locally
       const currentTripId = currentTripRef.current;
       if (currentTripId) {
         setPassengers(tp.filter(p => p.tripId === currentTripId));
       }
-      
-      if (t.length === 0) {
-        console.warn("[WARN loadData] 收到空的 trips 陣列，可能是 API 返回空資料或發生錯誤");
-      }
     } catch (e) {
-      console.error("[ERROR loadData] 載入資料時發生錯誤:", e);
+      console.error("Load Data Error", e);
     }
   };
 
@@ -1013,7 +1022,8 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
       flushTimerRef.current = null;
       try {
         // 如果有API調用且GPS已啟用，一次性發送GPS位置
-        if (gpsSystemEnabled && gpsEnabled) {
+        // 注意：只檢查 gpsEnabled（用戶手動開關），不檢查 gpsSystemEnabled
+        if (gpsEnabled) {
           try {
             await sendCurrentLocation(currentTrip?.id || null, true); // 強制發送
           } catch (e) {
@@ -1083,7 +1093,8 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
 
     try {
       // 如果有API調用且GPS已啟用，一次性發送GPS位置（包含 tripId）
-      if (gpsSystemEnabled && gpsEnabled) {
+      // 注意：只檢查 gpsEnabled（用戶手動開關），不檢查 gpsSystemEnabled
+      if (gpsEnabled) {
         try {
           const tripId = currentTrip?.id || null;
           await sendCurrentLocation(tripId, true); // 強制發送
@@ -1097,7 +1108,8 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
         setToastMessage(`確認上車: ${result.passenger.name} (${result.passenger.pax}人)`);
         
         // 強制發送 GPS（API 調用時一次性發送）
-        if (gpsSystemEnabled && gpsEnabled) {
+        // 注意：只檢查 gpsEnabled（用戶手動開關），不檢查 gpsSystemEnabled
+        if (gpsEnabled) {
           try {
             const tripId = currentTrip?.id || null;
             await sendCurrentLocation(tripId, true);
@@ -1694,6 +1706,48 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                           {/* GPS定位發送開關（層級結構） */}
                           {gpsSystemEnabled && (
                             <>
+                                  {/* Google 定位開關 */}
+                              <div className="menu-item column-item" style={{paddingLeft: '24px', borderLeft: '2px solid #e0e0e0'}}>
+                                <span className="menu-label">Google 定位</span>
+                                <label className="toggle-switch">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={locationProviderGoogle} 
+                                    disabled={userRole === 'desk'}
+                                    onChange={e => {
+                                      if (userRole === 'desk') return;
+                                      const val = e.target.checked;
+                                      setLocationProviderGoogle(val);
+                                    }} 
+                                  />
+                                  <span className="slider"></span>
+                                </label>
+                                <div style={{fontSize: '12px', color: '#999', marginTop: '4px'}}>
+                                  使用 Google Geolocation API 進行定位
+                                </div>
+                              </div>
+                              
+                              {/* HyperTrack 定位開關（預設開啟） */}
+                              <div className="menu-item column-item" style={{paddingLeft: '24px', borderLeft: '2px solid #e0e0e0'}}>
+                                <span className="menu-label">HyperTrack 定位</span>
+                                <label className="toggle-switch">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={locationProviderHyperTrack} 
+                                    disabled={userRole === 'desk'}
+                                    onChange={e => {
+                                      if (userRole === 'desk') return;
+                                      const val = e.target.checked;
+                                      setLocationProviderHyperTrack(val);
+                                    }} 
+                                  />
+                                  <span className="slider"></span>
+                                </label>
+                                <div style={{fontSize: '12px', color: '#999', marginTop: '4px'}}>
+                                  使用 HyperTrack 進行定位（預設開啟，優先級高於 Google）
+                                </div>
+                              </div>
+                              
                               <div className="menu-item column-item" style={{paddingLeft: '24px', borderLeft: '2px solid #e0e0e0'}}>
                                 <span className="menu-label">GPS定位發送</span>
                                 <label className="toggle-switch">
@@ -1800,99 +1854,6 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                       </div>
                                     </>
                                   )}
-                            </>
-                          )}
-                          
-                          {/* 定位方式選擇（層級結構） */}
-                          {gpsSystemEnabled && (
-                            <>
-                              <div className="menu-item column-item" style={{paddingLeft: '24px', borderLeft: '2px solid #e0e0e0', marginTop: '12px'}}>
-                                <span className="menu-label" style={{fontWeight: 600, color: '#333'}}>定位方式</span>
-                                <div style={{fontSize: '12px', color: '#999', marginTop: '4px', marginBottom: '8px'}}>
-                                  選擇要使用的定位服務
-                                </div>
-                              </div>
-                              
-                              <div className="menu-item column-item" style={{paddingLeft: '48px', borderLeft: '2px solid #e0e0e0'}}>
-                                <span className="menu-label">Google 定位</span>
-                                <label className="toggle-switch">
-                                  <input 
-                                    type="checkbox" 
-                                    checked={locationProviderGoogle} 
-                                    disabled={userRole === 'desk'}
-                                    onChange={async e => {
-                                      if (userRole === 'desk') return;
-                                      const val = e.target.checked;
-                                      setLocationProviderGoogle(val);
-                                      await Preferences.set({ key: 'location_provider_google', value: String(val) });
-                                      localStorage.setItem('location_provider_google', String(val));
-                                    }} 
-                                  />
-                                  <span className="slider"></span>
-                                </label>
-                                <div style={{fontSize: '12px', color: '#999', marginTop: '4px'}}>
-                                  使用 Google Geolocation API
-                                </div>
-                              </div>
-                              
-                              <div className="menu-item column-item" style={{paddingLeft: '48px', borderLeft: '2px solid #e0e0e0'}}>
-                                <span className="menu-label">HyperTrack 定位</span>
-                                <label className="toggle-switch">
-                                  <input 
-                                    type="checkbox" 
-                                    checked={locationProviderHyperTrack} 
-                                    disabled={userRole === 'desk'}
-                                    onChange={async e => {
-                                      if (userRole === 'desk') return;
-                                      const val = e.target.checked;
-                                      setLocationProviderHyperTrack(val);
-                                      await Preferences.set({ key: 'location_provider_hypertrack', value: String(val) });
-                                      localStorage.setItem('location_provider_hypertrack', String(val));
-                                      
-                                      // 如果啟用 HyperTrack，初始化並開始追蹤
-                                      if (val) {
-                                        try {
-                                          const { HyperTrack } = await import('../plugins/hypertrack');
-                                          
-                                          // 1. 初始化 HyperTrack SDK
-                                          await HyperTrack.initialize();
-                                          
-                                          // 2. 獲取 Device ID
-                                          const deviceId = await HyperTrack.getDeviceId();
-                                          if (deviceId) {
-                                            setDeviceIdState(deviceId);
-                                            
-                                            // 3. 設置 Worker Handle（根據官方文檔）
-                                            const workerHandle = userRole || deviceId || 'driver';
-                                            await HyperTrack.setWorkerHandle(workerHandle);
-                                            console.log('[HyperTrack] Worker Handle set:', workerHandle);
-                                            
-                                            // 4. 如果 GPS 已啟用，開始追蹤
-                                            if (gpsEnabled) {
-                                              await HyperTrack.startTracking();
-                                              console.log('[HyperTrack] Tracking started');
-                                            }
-                                          }
-                                        } catch (err) {
-                                          console.error('[HyperTrack] Initialization error:', err);
-                                        }
-                                      } else {
-                                        // 如果關閉 HyperTrack，停止追蹤
-                                        try {
-                                          const { HyperTrack } = await import('../plugins/hypertrack');
-                                          await HyperTrack.stopTracking();
-                                        } catch (err) {
-                                          console.error('HyperTrack stopTracking error:', err);
-                                        }
-                                      }
-                                    }} 
-                                  />
-                                  <span className="slider"></span>
-                                </label>
-                                <div style={{fontSize: '12px', color: '#999', marginTop: '4px'}}>
-                                  使用 HyperTrack SDK（優先級較高）
-                                </div>
-                              </div>
                             </>
                           )}
                        </div>
@@ -2292,14 +2253,16 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                     setAllPassengers(prev => updateList(prev));
                     setAllTripPassengers(prev => updateList(prev));
                     // 如果有API調用且GPS已啟用，一次性發送GPS位置（包含 tripId）
-                    if (gpsSystemEnabled && gpsEnabled) {
+                    // 注意：只檢查 gpsEnabled（用戶手動開關），不檢查 gpsSystemEnabled
+                    if (gpsEnabled) {
                       const tripId = currentTrip?.id || null;
                       sendCurrentLocation(tripId, true).catch(()=>{});
                     }
                     import('../services/api').then(async api => {
                       await api.markNoShow(bookingId);
                       // 強制發送 GPS（API 調用時一次性發送）
-                      if (gpsSystemEnabled && gpsEnabled) {
+                      // 注意：只檢查 gpsEnabled（用戶手動開關），不檢查 gpsSystemEnabled
+                      if (gpsEnabled) {
                         try {
                           const tripId = currentTrip?.id || null;
                           await sendCurrentLocation(tripId, true);
@@ -2333,14 +2296,16 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                     setAllPassengers(prev => updateList(prev));
                     setAllTripPassengers(prev => updateList(prev));
                     // 如果有API調用且GPS已啟用，一次性發送GPS位置（包含 tripId）
-                    if (gpsSystemEnabled && gpsEnabled) {
+                    // 注意：只檢查 gpsEnabled（用戶手動開關），不檢查 gpsSystemEnabled
+                    if (gpsEnabled) {
                       const tripId = currentTrip?.id || null;
                       sendCurrentLocation(tripId, true).catch(()=>{});
                     }
                     import('../services/api').then(async api => {
                       await api.markManualBoarding(bookingId);
                       // 強制發送 GPS（API 調用時一次性發送）
-                      if (gpsSystemEnabled && gpsEnabled) {
+                      // 注意：只檢查 gpsEnabled（用戶手動開關），不檢查 gpsSystemEnabled
+                      if (gpsEnabled) {
                         try {
                           const tripId = currentTrip?.id || null;
                           await sendCurrentLocation(tripId, true);
@@ -2393,89 +2358,87 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                      // 按照STATION_ORDER順序排列
                      const stopsList = STATION_ORDER.filter(st => stationSet.has(st));
                      
-                     // 不再寫入《系統》分頁或更新出車狀態
+                     // 根據開關選擇調用對應的 API（優先級：HyperTrack > Google）
                      (async () => {
                        try {
-                         // 如果選擇了 HyperTrack，調用 HyperTrack Trip API
+                         // 優先級：HyperTrack > Google
                          if (locationProviderHyperTrack) {
-                           try {
-                             const { HyperTrack } = await import('../plugins/hypertrack');
-                             
-                             // 1. 初始化 HyperTrack SDK
-                             await HyperTrack.initialize();
-                             
-                             // 2. 獲取 Device ID
-                             const deviceId = await HyperTrack.getDeviceId();
-                             
-                             if (deviceId) {
-                               setDeviceIdState(deviceId);
-                               
-                               // 3. 設置 Worker Handle（根據官方文檔，這是必需的）
-                               // 使用 userRole 或 deviceId 作為 worker handle
-                               const workerHandle = userRole || deviceId || 'driver';
-                               await HyperTrack.setWorkerHandle(workerHandle);
-                               console.log('[HyperTrack] Worker Handle set:', workerHandle);
-                               
-                               // 4. 調用 HyperTrack Trip API（後端創建 Trip/Order）
-                               const htResp = await startHyperTrackTrip({
-                                 main_datetime: dt,
-                                 driver_role: userRole,
-                                 stops: stopsList,
-                                 device_id: deviceId
-                               });
-                               
-                               if ((htResp as any).trip_id) {
-                                 setActiveTripId((htResp as any).trip_id as string);
-                                 localStorage.setItem('driver_trip_id', (htResp as any).trip_id as string);
-                               }
-                               
-                               // 5. 啟動 HyperTrack 追蹤（根據官方文檔，這會開始追蹤設備位置）
-                               await HyperTrack.startTracking();
-                               console.log('[HyperTrack] Trip created and tracking started');
-                             } else {
-                               console.error('[HyperTrack] Device ID not available');
-                             }
-                           } catch (err) {
-                             console.error('[HyperTrack] Trip creation error:', err);
-                             // 如果 HyperTrack 失敗，回退到 Google Maps
-                             const resp = await startGoogleTripStart({ 
-                               main_datetime: dt, 
-                               driver_role: userRole,
-                               stops: stopsList
-                             });
-                             if ((resp as any).trip_id) {
-                               setActiveTripId((resp as any).trip_id as string);
-                               localStorage.setItem('driver_trip_id', (resp as any).trip_id as string);
-                             }
+                           // HyperTrack 開關已開啟，創建 HyperTrack Trip
+                           console.log('[出車開始] HyperTrack 開關已開啟，開始創建 Trip, stops:', stopsList);
+                           
+                           // 1. 初始化 HyperTrack SDK
+                           await HyperTrack.initialize();
+                           console.log('[出車開始] HyperTrack SDK 已初始化');
+                           
+                           // 2. 獲取 Device ID
+                           const deviceId = await HyperTrack.getDeviceId();
+                           console.log('[出車開始] HyperTrack Device ID:', deviceId);
+                           
+                           if (!deviceId) {
+                             console.error('[出車開始] HyperTrack Device ID 為空，無法創建 Trip');
+                             throw new Error('HyperTrack Device ID not available');
                            }
-                         } else {
-                           // 使用 Google Maps 版本
+                           
+                           // 3. 設置 Worker Handle（根據官方文檔，這是必需的）
+                           const workerHandle = userRole || deviceId || 'driver';
+                           await HyperTrack.setWorkerHandle(workerHandle);
+                           console.log('[出車開始] HyperTrack Worker Handle 已設置:', workerHandle);
+                           
+                           // 4. 調用 HyperTrack Trip API（傳遞 worker_handle）
+                           const resp = await startHyperTrackTrip({ 
+                             main_datetime: dt, 
+                             driver_role: userRole,
+                             stops: stopsList,
+                             device_id: deviceId || undefined,
+                             worker_handle: workerHandle  // 傳遞 worker_handle 給後端
+                           });
+                           console.log('[出車開始] HyperTrack Trip 創建響應:', resp);
+                           if ((resp as any).trip_id) {
+                             setActiveTripId((resp as any).trip_id as string);
+                             localStorage.setItem('driver_trip_id', (resp as any).trip_id as string);
+                           }
+                           if ((resp as any).hypertrack_trip_id) {
+                             console.log('[出車開始] HyperTrack Trip ID:', (resp as any).hypertrack_trip_id);
+                           }
+                           if ((resp as any).share_url) {
+                             console.log('[出車開始] HyperTrack Share URL:', (resp as any).share_url);
+                           }
+                           // 啟動 HyperTrack 追蹤
+                           await HyperTrack.startTracking();
+                           console.log('[出車開始] HyperTrack 追蹤已啟動');
+                         } else if (locationProviderGoogle) {
+                           // Google 開關已開啟，創建 Google Trip
+                           console.log('[出車開始] Google 開關已開啟，開始創建 Trip, stops:', stopsList);
                            const resp = await startGoogleTripStart({ 
                              main_datetime: dt, 
                              driver_role: userRole,
                              stops: stopsList
                            });
+                           console.log('[出車開始] Google Trip 創建響應:', resp);
                            if ((resp as any).trip_id) {
                              setActiveTripId((resp as any).trip_id as string);
                              localStorage.setItem('driver_trip_id', (resp as any).trip_id as string);
                            }
+                         } else {
+                           console.log('[出車開始] 沒有選擇定位方式，跳過 Trip 創建');
                          }
                          
-                         // 啟動 GPS 發送（只有接駁司機才啟動）
+                         // 啟動 GPS 發送（只有接駁司機才啟動，且 gpsSystemEnabled 為 true）
                          if (userRole !== 'desk' && gpsSystemEnabled) {
                            try { 
                              localStorage.setItem('gps_enabled', 'true'); 
                              setGpsEnabled(true);
                              gpsEnabledStartTimeRef.current = Date.now();
-                             // 立即強制發送一次位置，確保 Firebase 更新
-                             try {
-                               await sendCurrentLocation(currentTrip?.id || null, true);
-                             } catch (e) {
-                               console.error('Error sending initial location:', e);
-                             }
-                           } catch {}
+                             await sendCurrentLocation(currentTrip.id, true);
+                             console.log('[出車開始] GPS 位置已發送');
+                           } catch (e) {
+                             console.error('Error starting GPS on trip start:', e);
+                           }
                          }
-                       } catch {}
+                         
+                       } catch (e) {
+                         console.error('Trip start error:', e);
+                       }
                      })();
                   }
                 }}>確認</button>
@@ -2504,21 +2467,14 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                    if (currentTrip) {
                      const dt = `${currentTrip.date.replace(/-/g,'/')}` + ' ' + `${currentTrip.time}`;
                      setToastMessage('已設定為已結束');
-                   // 結束時關閉 GPS 發送
+                   // 結束時關閉 GPS 發送和 HyperTrack 追蹤
                    try { 
                      localStorage.setItem('gps_enabled', 'false'); 
                      setGpsEnabled(false);
                      gpsEnabledStartTimeRef.current = null;
-                     
-                     // 如果使用 HyperTrack，停止追蹤
+                     // 停止 HyperTrack 追蹤（如果啟用）
                      if (locationProviderHyperTrack) {
-                       try {
-                         const { HyperTrack } = await import('../plugins/hypertrack');
-                         await HyperTrack.stopTracking();
-                         console.log('HyperTrack tracking stopped');
-                       } catch (err) {
-                         console.error('HyperTrack stopTracking error:', err);
-                       }
+                       await HyperTrack.stopTracking();
                      }
                    } catch {}
                      const tid = activeTripId || localStorage.getItem('driver_trip_id') || '';
