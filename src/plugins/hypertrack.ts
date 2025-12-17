@@ -23,19 +23,9 @@ export const initializeHyperTrack = async (): Promise<boolean> => {
       return true;
     }
     
-    // 嘗試設置 Publishable Key（如果 SDK 支持此方法）
-    try {
-      // 檢查 SDK 是否有 setPublishableKey 方法
-      if (typeof HyperTrackSDK.setPublishableKey === 'function') {
-        await HyperTrackSDK.setPublishableKey(HYPERTRACK_PUBLISHABLE_KEY);
-        console.log('[HyperTrack] Publishable Key set via SDK');
-      } else {
-        console.log('[HyperTrack] Publishable Key configured in AndroidManifest.xml/Info.plist');
-      }
-    } catch (e) {
-      console.warn('[HyperTrack] setPublishableKey not available or failed:', e);
-      // 繼續執行，因為 key 可能已在原生配置中設置
-    }
+            // Publishable Key 在原生配置文件中設置（AndroidManifest.xml/Info.plist）
+            // 不需要在 JavaScript 中設置
+            console.log('[HyperTrack] Publishable Key configured in AndroidManifest.xml/Info.plist');
     
     // 嘗試獲取 device ID 來確認 SDK 是否可用
     try {
