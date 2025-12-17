@@ -364,6 +364,7 @@ export const startHyperTrackTrip = async (params: {
   driver_role?: string;
   stops?: string[];
   device_id?: string;
+  worker_handle?: string;
 }): Promise<{ 
   trip_id?: string; 
   hypertrack_trip_id?: string;

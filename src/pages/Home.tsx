@@ -2384,12 +2384,13 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                            await HyperTrack.setWorkerHandle(workerHandle);
                            console.log('[出車開始] HyperTrack Worker Handle 已設置:', workerHandle);
                            
-                           // 4. 調用 HyperTrack Trip API
+                           // 4. 調用 HyperTrack Trip API（傳遞 worker_handle）
                            const resp = await startHyperTrackTrip({ 
                              main_datetime: dt, 
                              driver_role: userRole,
                              stops: stopsList,
-                             device_id: deviceId || undefined
+                             device_id: deviceId || undefined,
+                             worker_handle: workerHandle  // 傳遞 worker_handle 給後端
                            });
                            console.log('[出車開始] HyperTrack Trip 創建響應:', resp);
                            if ((resp as any).trip_id) {
