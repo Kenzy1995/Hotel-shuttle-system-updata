@@ -19,3 +19,15 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Keep HyperTrack SDK classes
+-keep class com.hypertrack.** { *; }
+-dontwarn com.hypertrack.**
+
+# Keep Capacitor classes
+-keep class com.getcapacitor.** { *; }
+-dontwarn com.getcapacitor.**
+
+# Keep React Native classes (if used)
+-keep class com.facebook.react.** { *; }
+-dontwarn com.facebook.react.**

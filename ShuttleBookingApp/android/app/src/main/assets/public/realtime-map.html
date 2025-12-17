@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>即時位置 | Realtime GPS</title>
+<style>
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+  #map { flex: 1; width: 100%; }
+  #status { padding: 8px; text-align: center; background: #fff; border-bottom: 1px solid #ddd; font-size: 14px; color: #666; display:flex; align-items:center; justify-content:center; gap:12px; }
+  #status .refresh-btn { margin-left:auto; margin-right:8px; padding:4px 8px; font-size:12px; border:1px solid #ddd; border-radius:6px; background:#f7f7f7; cursor:pointer; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="status">
+    <span id="status-text">準備中...</span>
+    <button id="refresh-btn" class="refresh-btn">手動刷新</button>
+  </div>
+  <div id="map"></div>
+</div>
+<script>
+(async function() {
+  const qs = new URLSearchParams(location.search);
+  const key = qs.get('key');
+  const api = qs.get('api');
+  const trip = qs.get('trip');
+  const fbdb = qs.get('fbdb'); // Firebase RTDB URL (optional)
+  const fbkey = qs.get('fbkey'); // Firebase Web API key (optional)
+  const statusEl = document.getElementById('status');
+  const statusTextEl = document.getElementById('status-text');
+  const refreshBtn = document.getElementById('refresh-btn');
+  
+  if (!key) {
+    statusEl.textContent = '錯誤：網址缺少 key 參數';
+    return;
+  }
+  if (!api) {
+    statusEl.textContent = '錯誤：網址缺少 api 參數';
+    return;
+  }
+
+  // 1. Load Google Maps
+  statusEl.textContent = '載入地圖中...';
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}`;
+    s.async = true;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+
+  // 2. Init Map
+  const map = new google.maps.Map(document.getElementById('map'), {
+    center: { lat: 25.068, lng: 121.662 },
+    zoom: 14,
+    disableDefaultUI: false,
+    zoomControl: true,
+    mapTypeControl: false,
+    streetViewControl: false,
+  });
+  
+  const marker = new google.maps.Marker({
+    position: { lat: 25.068, lng: 121.662 },
+    map: map,
+    title: "司機位置",
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 10,
+      fillColor: "#4285F4",
+      fillOpacity: 1,
+      strokeColor: "white",
+      strokeWeight: 2,
+    },
+  });
+
+  statusTextEl.textContent = '等待司機位置訊號...';
+
+  // 3. Route rendering (optional by trip)
+  let mainPolyline = null;
+  let walkedPolyline = null;
+  const drawRoute = async () => {
+    if (!trip) return;
+    try {
+      const url = api.replace(/\/$/, '') + `/api/driver/route?trip_id=${encodeURIComponent(trip)}`;
+      const r = await fetch(url);
+      const d = await r.json();
+      const path = (d && d.polyline && d.polyline.path) || null;
+      if (path && Array.isArray(path) && path.length > 1) {
+        const gPath = path.map(p => new google.maps.LatLng(p.lat, p.lng));
+        if (mainPolyline) mainPolyline.setMap(null);
+        mainPolyline = new google.maps.Polyline({
+          path: gPath,
+          strokeColor: '#0b63ce',
+          strokeOpacity: 0.8,
+          strokeWeight: 6,
+          map,
+        });
+        const bounds = new google.maps.LatLngBounds();
+        gPath.forEach(pt => bounds.extend(pt));
+        map.fitBounds(bounds);
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+  await drawRoute();
+
+  // 4. Start Polling
+  const fetchLocation = async () => {
+    try {
+      const url = api.replace(/\/$/, '') + '/api/driver/location';
+      const r = await fetch(url);
+      
+      // 如果回傳不是 200，但可能是我們後端自定義的錯誤 JSON
+      const d = await r.json();
+
+      // 檢查後端是否回傳錯誤訊息
+      if (d.status === 'error') {
+        statusTextEl.textContent = `錯誤: ${d.error_detail || '未知錯誤'} (${d.hint || ''})`;
+        statusTextEl.style.color = 'red';
+        return;
+      }
+      
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+
+      if (typeof d.lat === 'number' && typeof d.lng === 'number') {
+        const pos = { lat: d.lat, lng: d.lng };
+        marker.setPosition(pos);
+        map.panTo(pos);
+        // highlight walked segment if route exists
+        try {
+          if (mainPolyline) {
+            const path = mainPolyline.getPath().getArray();
+            // find nearest index
+            let nearestIdx = 0;
+            let best = Infinity;
+            for (let i=0;i<path.length;i++) {
+              const dx = path[i].lat() - pos.lat;
+              const dy = path[i].lng() - pos.lng;
+              const dist = dx*dx + dy*dy;
+              if (dist < best) { best = dist; nearestIdx = i; }
+            }
+            if (walkedPolyline) walkedPolyline.setMap(null);
+            walkedPolyline = new google.maps.Polyline({
+              path: path.slice(0, Math.max(1, nearestIdx)),
+              strokeColor: '#0b63ce',
+              strokeOpacity: 1,
+              strokeWeight: 8,
+              map,
+            });
+          }
+        } catch {}
+        
+        // Format timestamp if available
+        let timeStr = '';
+        if (d.updated_at) {
+            timeStr = ` (${d.updated_at.split(' ')[1] || d.updated_at})`;
+        }
+        statusTextEl.textContent = `● 訊號良好${timeStr}`;
+        statusTextEl.style.color = '#28a745';
+      }
+    } catch (e) {
+      statusTextEl.textContent = '○ 正在連線...';
+      statusTextEl.style.color = '#666';
+    }
+  };
+
+  // 預設每 5 分鐘自動刷新，並提供手動刷新與即時監聽切換
+  fetchLocation();
+  const AUTO_REFRESH_MS = 5 * 60 * 1000;
+  let autoTimer = setInterval(fetchLocation, AUTO_REFRESH_MS);
+  refreshBtn.addEventListener('click', () => { drawRoute(); fetchLocation(); });
+  
+  // Firebase watch toggle（按需啟用）
+  let unsub = null;
+  const makeWatchBtn = () => {
+    const btn = document.createElement('button');
+    btn.textContent = '查看即時位置';
+    btn.className = 'refresh-btn';
+    btn.style.marginLeft = '8px';
+    btn.onclick = async () => {
+      if (!fbdb || !fbkey) {
+        statusTextEl.textContent = '未設定 Firebase 監聽參數';
+        statusTextEl.style.color = '#666';
+        return;
+      }
+      if (!unsub) {
+        // 啟用監聽
+        try {
+          // 動態載入 Firebase SDK
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js';
+            s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
+          });
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js';
+            s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
+          });
+          // @ts-ignore
+          const app = firebase.initializeApp({ apiKey: fbkey, databaseURL: fbdb });
+          // @ts-ignore
+          const dbref = firebase.database().ref('/driver_location');
+          // 停止自動輪詢
+          clearInterval(autoTimer);
+          autoTimer = null;
+          // 啟用監聽
+          // @ts-ignore
+          const handler = (snap) => {
+            const d = snap.val();
+            if (d && typeof d.lat === 'number' && typeof d.lng === 'number') {
+              const pos = { lat: d.lat, lng: d.lng };
+              marker.setPosition(pos);
+              map.panTo(pos);
+              statusTextEl.textContent = '● 即時監聽中';
+              statusTextEl.style.color = '#28a745';
+            }
+          };
+          dbref.on('value', handler);
+          unsub = () => dbref.off('value', handler);
+          btn.textContent = '停止監聽';
+        } catch (e) {
+          statusTextEl.textContent = '監聽初始化失敗';
+          statusTextEl.style.color = 'red';
+        }
+      } else {
+        // 停用監聽
+        try { unsub(); } catch {}
+        unsub = null;
+        btn.textContent = '查看即時位置';
+        statusTextEl.textContent = '○ 已停止監聽';
+        statusTextEl.style.color = '#666';
+        // 恢復低頻刷新
+        if (!autoTimer) autoTimer = setInterval(fetchLocation, AUTO_REFRESH_MS);
+      }
+    };
+    statusEl.appendChild(btn);
+  };
+  makeWatchBtn();
+
+})();
+</script>
+</body>
+</html>

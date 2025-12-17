@@ -9,7 +9,7 @@ const API_BASE = "https://driver-api2-995728097341.asia-east1.run.app";
 let lastSentTime = 0;
 let lastSentLocation: { lat: number; lng: number; timestamp: number } | null = null;
 
-// 獲取當前選擇的定位方式
+// 獲取當前選擇的定位方式（優先級：HyperTrack > Google）
 export const getLocationProvider = async (): Promise<'google' | 'hypertrack' | null> => {
   try {
     const [googleEnabled, hypertrackEnabled] = await Promise.all([
@@ -22,11 +22,12 @@ export const getLocationProvider = async (): Promise<'google' | 'hypertrack' | n
     if (googleEnabled.value === 'true') return 'google';
     return null;
   } catch (e) {
-    console.error('Error getting location provider:', e);
+    console.error('Error reading location provider preferences:', e);
     return null;
   }
 };
 
+// 支持 Google Maps 和 HyperTrack 雙定位系統
 export const sendCurrentLocation = async (tripId: string | null = null, forceSend: boolean = false, minIntervalMs: number = 3 * 60 * 1000) => {
   try {
     const now = Date.now();
@@ -38,36 +39,50 @@ export const sendCurrentLocation = async (tripId: string | null = null, forceSen
     }
     
     // 獲取當前選擇的定位方式
-    const provider = await getLocationProvider();
+    let provider = await getLocationProvider();
     
     let location: { lat: number; lng: number; timestamp: number } | null = null;
     let deviceId: string | null = null;
     
     if (provider === 'hypertrack') {
       // 使用 HyperTrack 獲取位置
-      const hypertrackLocation = await getHyperTrackLocation();
-      if (hypertrackLocation) {
-        location = hypertrackLocation;
-        // 獲取 HyperTrack device ID
-        deviceId = await HyperTrack.getDeviceId();
-      } else {
-        console.warn('HyperTrack location not available, falling back to Google Geolocation');
-        // 如果 HyperTrack 無法獲取位置，回退到 Google Geolocation
+      try {
+        location = await getHyperTrackLocation();
+        if (location) {
+          deviceId = await HyperTrack.getDeviceId();
+        } else {
+          console.warn('HyperTrack location not available, falling back to Google Geolocation');
+          // 回退到 Google Geolocation
+          const coordinates = await Geolocation.getCurrentPosition();
+          location = {
+            lat: coordinates.coords.latitude,
+            lng: coordinates.coords.longitude,
+            timestamp: coordinates.timestamp
+          };
+          provider = 'google'; // 更新 provider 為 google
+          deviceId = null; // 清除 device_id
+        }
+      } catch (htError) {
+        console.error('HyperTrack location error, falling back to Google Geolocation:', htError);
+        // 回退到 Google Geolocation
         const coordinates = await Geolocation.getCurrentPosition();
         location = {
           lat: coordinates.coords.latitude,
           lng: coordinates.coords.longitude,
           timestamp: coordinates.timestamp
         };
+        provider = 'google'; // 更新 provider 為 google
+        deviceId = null; // 清除 device_id
       }
     } else {
-      // 使用 Google Geolocation（預設或明確選擇）
+      // 使用 Google Geolocation
       const coordinates = await Geolocation.getCurrentPosition();
       location = {
         lat: coordinates.coords.latitude,
         lng: coordinates.coords.longitude,
         timestamp: coordinates.timestamp
       };
+      provider = provider || 'google'; // 確保有預設值
     }
     
     if (!location) {
@@ -75,7 +90,7 @@ export const sendCurrentLocation = async (tripId: string | null = null, forceSen
       return null;
     }
     
-    // Upload to server，包含 location_provider 參數
+    // Upload to server
     const payload: any = {
       lat: location.lat,
       lng: location.lng,
@@ -90,14 +105,14 @@ export const sendCurrentLocation = async (tripId: string | null = null, forceSen
     }
     
     await axios.post(`${API_BASE}/api/driver/location`, payload);
-    console.log('Location sent:', location.lat, location.lng, 'Trip ID:', tripId, 'Provider:', provider || 'google');
+    console.log(`Location sent (${provider || 'google'}):`, location.lat, location.lng, 'Trip ID:', tripId, provider === 'hypertrack' ? `Device ID: ${deviceId}` : '');
     
     lastSentTime = now;
     lastSentLocation = location;
     
     return location;
   } catch (e) {
-    console.error('Error sending location', e);
+    console.error('Error sending location:', e);
     return null;
   }
 };

@@ -34,7 +34,7 @@ ios/*.xcuserdata
 .env
 .env.local
 
-# 敏感文件
+# 敏感文件（不應該上傳到 GitHub）
 *.keystore
 keystore.properties
 google-services.json
@@ -42,4 +42,8 @@ google-services.json
 # 系統文件
 .DS_Store
 Thumbs.db
+
+# 臨時文件
+*.log
+*.tmp
 

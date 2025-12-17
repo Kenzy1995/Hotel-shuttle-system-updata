@@ -258,6 +258,40 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     const saved = localStorage.getItem('location_provider_hypertrack');
     return saved === null ? false : saved === 'true'; // 預設關閉 HyperTrack
   });
+  
+  // 初始化時從 Preferences 同步狀態（確保 location.ts 能讀取到）
+  useEffect(() => {
+    const syncLocationProviders = async () => {
+      try {
+        const [googlePref, hypertrackPref] = await Promise.all([
+          Preferences.get({ key: 'location_provider_google' }),
+          Preferences.get({ key: 'location_provider_hypertrack' })
+        ]);
+        
+        // 如果 Preferences 有值，使用 Preferences；否則使用 localStorage 的值並同步到 Preferences
+        if (googlePref.value !== null) {
+          const googleVal = googlePref.value === 'true';
+          setLocationProviderGoogle(googleVal);
+          localStorage.setItem('location_provider_google', String(googleVal));
+        } else {
+          const googleVal = locationProviderGoogle;
+          await Preferences.set({ key: 'location_provider_google', value: String(googleVal) });
+        }
+        
+        if (hypertrackPref.value !== null) {
+          const hypertrackVal = hypertrackPref.value === 'true';
+          setLocationProviderHyperTrack(hypertrackVal);
+          localStorage.setItem('location_provider_hypertrack', String(hypertrackVal));
+        } else {
+          const hypertrackVal = locationProviderHyperTrack;
+          await Preferences.set({ key: 'location_provider_hypertrack', value: String(hypertrackVal) });
+        }
+      } catch (e) {
+        console.error('Error syncing location providers:', e);
+      }
+    };
+    syncLocationProviders();
+  }, []);
   const [hyperDebug, setHyperDebug] = useState<{ keyLen?: number; deviceId?: string; error?: string }>({});
   const [pluginAvail, setPluginAvail] = useState<boolean>(false);
   const [nativePlatform, setNativePlatform] = useState<boolean>(false);
@@ -1819,16 +1853,28 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                       if (val) {
                                         try {
                                           const { HyperTrack } = await import('../plugins/hypertrack');
+                                          
+                                          // 1. 初始化 HyperTrack SDK
                                           await HyperTrack.initialize();
+                                          
+                                          // 2. 獲取 Device ID
                                           const deviceId = await HyperTrack.getDeviceId();
                                           if (deviceId) {
                                             setDeviceIdState(deviceId);
+                                            
+                                            // 3. 設置 Worker Handle（根據官方文檔）
+                                            const workerHandle = userRole || deviceId || 'driver';
+                                            await HyperTrack.setWorkerHandle(workerHandle);
+                                            console.log('[HyperTrack] Worker Handle set:', workerHandle);
+                                            
+                                            // 4. 如果 GPS 已啟用，開始追蹤
                                             if (gpsEnabled) {
                                               await HyperTrack.startTracking();
+                                              console.log('[HyperTrack] Tracking started');
                                             }
                                           }
                                         } catch (err) {
-                                          console.error('HyperTrack initialization error:', err);
+                                          console.error('[HyperTrack] Initialization error:', err);
                                         }
                                       } else {
                                         // 如果關閉 HyperTrack，停止追蹤
@@ -2354,12 +2400,23 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                          if (locationProviderHyperTrack) {
                            try {
                              const { HyperTrack } = await import('../plugins/hypertrack');
+                             
+                             // 1. 初始化 HyperTrack SDK
                              await HyperTrack.initialize();
+                             
+                             // 2. 獲取 Device ID
                              const deviceId = await HyperTrack.getDeviceId();
                              
                              if (deviceId) {
                                setDeviceIdState(deviceId);
-                               // 調用 HyperTrack Trip API
+                               
+                               // 3. 設置 Worker Handle（根據官方文檔，這是必需的）
+                               // 使用 userRole 或 deviceId 作為 worker handle
+                               const workerHandle = userRole || deviceId || 'driver';
+                               await HyperTrack.setWorkerHandle(workerHandle);
+                               console.log('[HyperTrack] Worker Handle set:', workerHandle);
+                               
+                               // 4. 調用 HyperTrack Trip API（後端創建 Trip/Order）
                                const htResp = await startHyperTrackTrip({
                                  main_datetime: dt,
                                  driver_role: userRole,
@@ -2372,12 +2429,14 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                  localStorage.setItem('driver_trip_id', (htResp as any).trip_id as string);
                                }
                                
-                               // 啟動 HyperTrack 追蹤
+                               // 5. 啟動 HyperTrack 追蹤（根據官方文檔，這會開始追蹤設備位置）
                                await HyperTrack.startTracking();
-                               console.log('HyperTrack Trip created and tracking started');
+                               console.log('[HyperTrack] Trip created and tracking started');
+                             } else {
+                               console.error('[HyperTrack] Device ID not available');
                              }
                            } catch (err) {
-                             console.error('HyperTrack Trip creation error:', err);
+                             console.error('[HyperTrack] Trip creation error:', err);
                              // 如果 HyperTrack 失敗，回退到 Google Maps
                              const resp = await startGoogleTripStart({ 
                                main_datetime: dt, 
@@ -2408,6 +2467,12 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                              localStorage.setItem('gps_enabled', 'true'); 
                              setGpsEnabled(true);
                              gpsEnabledStartTimeRef.current = Date.now();
+                             // 立即強制發送一次位置，確保 Firebase 更新
+                             try {
+                               await sendCurrentLocation(currentTrip?.id || null, true);
+                             } catch (e) {
+                               console.error('Error sending initial location:', e);
+                             }
                            } catch {}
                          }
                        } catch {}

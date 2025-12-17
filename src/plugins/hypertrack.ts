@@ -13,34 +13,52 @@ let deviceId: string | null = null;
 let isTracking = false;
 
 // 初始化 HyperTrack
-// 注意：HyperTrack SDK 的 Publishable Key 需要在原生配置文件中設置
-// 這裡只是標記為已初始化，實際的初始化由原生 SDK 完成
+// 根據官方文檔，Ionic Capacitor SDK 需要：
+// 1. 在 AndroidManifest.xml 或 Info.plist 中設置 Publishable Key（已配置）
+// 2. 在代碼中調用 setPublishableKey（如果 SDK 支持）
+// 3. 獲取 device ID 來確認 SDK 是否可用
 export const initializeHyperTrack = async (): Promise<boolean> => {
   try {
     if (isInitialized) {
       return true;
     }
     
-    // HyperTrack SDK 不需要手動初始化，Publishable Key 在原生配置中設置
+    // 嘗試設置 Publishable Key（如果 SDK 支持此方法）
+    try {
+      // 檢查 SDK 是否有 setPublishableKey 方法
+      if (typeof HyperTrackSDK.setPublishableKey === 'function') {
+        await HyperTrackSDK.setPublishableKey(HYPERTRACK_PUBLISHABLE_KEY);
+        console.log('[HyperTrack] Publishable Key set via SDK');
+      } else {
+        console.log('[HyperTrack] Publishable Key configured in AndroidManifest.xml/Info.plist');
+      }
+    } catch (e) {
+      console.warn('[HyperTrack] setPublishableKey not available or failed:', e);
+      // 繼續執行，因為 key 可能已在原生配置中設置
+    }
+    
     // 嘗試獲取 device ID 來確認 SDK 是否可用
     try {
       const id = await HyperTrackSDK.getDeviceId();
       if (id) {
         deviceId = id;
+        console.log('[HyperTrack] Device ID obtained:', id);
         // 保存到本地存儲
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem('hypertrack_device_id', id);
         }
+      } else {
+        console.warn('[HyperTrack] Device ID is null or empty');
       }
     } catch (e) {
-      console.warn('HyperTrack getDeviceId not available yet:', e);
+      console.warn('[HyperTrack] getDeviceId not available yet:', e);
       // 如果獲取失敗，可能是 SDK 尚未完全初始化，稍後再試
     }
     
     isInitialized = true;
     return true;
   } catch (e) {
-    console.error('HyperTrack initialization error:', e);
+    console.error('[HyperTrack] Initialization error:', e);
     return false;
   }
 };

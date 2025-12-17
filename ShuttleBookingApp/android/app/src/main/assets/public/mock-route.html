@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>接駁路線模擬</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin:0; }
+    .wrap { display:flex; height:100vh; }
+    .left { width:320px; padding:16px; border-right:1px solid #ddd; overflow:auto; }
+    .right { flex:1; }
+    h1 { font-size:18px; margin:0 0 12px; }
+    .station { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+    .btn-row { display:flex; gap:8px; margin-top:12px; }
+    .btn { padding:8px 10px; border:1px solid #ccc; border-radius:8px; background:#fff; cursor:pointer; }
+    .btn-primary { border-color:#0b63ce; color:#0b63ce; background:#eef6ff; }
+    .legend { margin-top:12px; font-size:12px; color:#666; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="left">
+      <h1>接駁路線模擬（當班次有停）</h1>
+      <div id="stations"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="build">生成路線</button>
+        <button class="btn" id="advance">走過一段</button>
+        <button class="btn" id="reset">重置</button>
+      </div>
+      <div class="legend">
+        實線：已走過；<span style="border-bottom:3px solid #999;">虛線</span>：未走；點標：站點
+      </div>
+    </div>
+    <div class="right">
+      <div id="map"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const ALL = [
+      { id:'hotel_go', name:'福泰大飯店 (去)', lat:25.0673, lng:121.6463 },
+      { id:'mrt', name:'南港捷運站', lat:25.0553, lng:121.6171 },
+      { id:'train', name:'南港火車站', lat:25.0522, lng:121.6073 },
+      { id:'mall', name:'LaLaport 購物中心', lat:25.0549, lng:121.6148 },
+      { id:'hotel_back', name:'福泰大飯店 (回)', lat:25.0673, lng:121.6463 }
+    ]
+    const stationsDiv = document.getElementById('stations')
+    ALL.forEach(s => {
+      const div = document.createElement('div')
+      div.className = 'station'
+      div.innerHTML = \`<input type="checkbox" id="\${s.id}" checked /> <label for="\${s.id}">\${s.name}</label>\`
+      stationsDiv.appendChild(div)
+    })
+
+    const map = L.map('map').setView([25.0605, 121.626], 13)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map)
+
+    let markers = []
+    let segments = []
+    let currentIdx = -1
+
+    function clearAll() {
+      markers.forEach(m => map.removeLayer(m))
+      segments.forEach(s => map.removeLayer(s))
+      markers = []
+      segments = []
+      currentIdx = -1
+    }
+
+    function buildRoute() {
+      clearAll()
+      const selected = ALL.filter(s => document.getElementById(s.id).checked)
+      if (selected.length < 2) return
+      selected.forEach(s => {
+        const m = L.marker([s.lat, s.lng]).addTo(map).bindTooltip(s.name)
+        markers.push(m)
+      })
+      for (let i = 0; i < selected.length - 1; i++) {
+        const a = selected[i], b = selected[i+1]
+        const seg = L.polyline([[a.lat, a.lng], [b.lat, b.lng]], {
+          color: '#999',
+          weight: 3,
+          dashArray: '6,6'
+        }).addTo(map)
+        segments.push(seg)
+      }
+      const group = new L.featureGroup(markers)
+      map.fitBounds(group.getBounds().pad(0.2))
+      currentIdx = -1
+    }
+
+    function advanceOne() {
+      if (!segments.length) return
+      currentIdx = Math.min(currentIdx + 1, segments.length - 1)
+      segments.forEach((seg, idx) => {
+        if (idx <= currentIdx) {
+          seg.setStyle({ color: '#0b63ce', weight: 5, dashArray: null })
+        } else {
+          seg.setStyle({ color: '#999', weight: 3, dashArray: '6,6' })
+        }
+      })
+    }
+
+    document.getElementById('build').onclick = buildRoute
+    document.getElementById('advance').onclick = advanceOne
+    document.getElementById('reset').onclick = clearAll
+
+    buildRoute()
+  </script>
+</body>
+</html>

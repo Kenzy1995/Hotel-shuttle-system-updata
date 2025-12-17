@@ -68,14 +68,15 @@ export interface DriverDataResponse {
     mall: string;
     hotel_back: string;
   }[];
+  gps_system_enabled?: boolean;  // 從 Google Sheets 系統!E19 讀取
 }
 
-export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: Passenger[], allPassengers: Passenger[] }> => {
+export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: Passenger[], allPassengers: Passenger[], gpsSystemEnabled?: boolean }> => {
   try {
     console.log(`[DEBUG fetchAllData] 開始調用 API: ${API_BASE}/api/driver/data`);
     const res = await axios.get(`${API_BASE}/api/driver/data`);
     console.log(`[DEBUG fetchAllData] API 回應狀態: ${res.status}, 資料類型: ${typeof res.data}`);
-    console.log(`[DEBUG fetchAllData] trips 數量: ${res.data?.trips?.length || 0}, trip_passengers 數量: ${res.data?.trip_passengers?.length || 0}, passenger_list 數量: ${res.data?.passenger_list?.length || 0}`);
+    console.log(`[DEBUG fetchAllData] trips 數量: ${res.data?.trips?.length || 0}, trip_passengers 數量: ${res.data?.trip_passengers?.length || 0}, passenger_list 數量: ${res.data?.passenger_list?.length || 0}, gps_system_enabled: ${res.data?.gps_system_enabled}`);
     
     const data: DriverDataResponse = res.data;
 
@@ -221,8 +222,8 @@ export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: P
       }
     });
 
-    console.log(`[DEBUG fetchAllData] 成功返回: trips=${trips.length}, tripPassengers=${tripPassengers.length}, allPassengers=${allPassengers.length}`);
-    return { trips, tripPassengers, allPassengers };
+    console.log(`[DEBUG fetchAllData] 成功返回: trips=${trips.length}, tripPassengers=${tripPassengers.length}, allPassengers=${allPassengers.length}, gpsSystemEnabled=${data.gps_system_enabled}`);
+    return { trips, tripPassengers, allPassengers, gpsSystemEnabled: data.gps_system_enabled };
   } catch (e: any) {
     console.error("[ERROR fetchAllData] API 調用失敗:", e);
     if (e.response) {
@@ -233,7 +234,7 @@ export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: P
       console.error("[ERROR fetchAllData] 請求設定錯誤:", e.message);
     }
     // 返回空陣列，但記錄詳細錯誤以便調試
-    return { trips: [], tripPassengers: [], allPassengers: [] };
+    return { trips: [], tripPassengers: [], allPassengers: [], gpsSystemEnabled: undefined };
   }
 };
 
@@ -370,10 +371,20 @@ export const startHyperTrackTrip = async (params: {
   stops?: Array<{ lat: number; lng: number; name: string }> 
 }> => {
   try {
+    console.log("[API startHyperTrackTrip] 發送請求:", params);
     const res = await axios.post(`${API_BASE}/api/driver/hypertrack/trip_start`, params);
+    console.log("[API startHyperTrackTrip] 響應狀態:", res.status);
+    console.log("[API startHyperTrackTrip] 響應數據:", res.data);
     return res.data || {};
-  } catch (e) {
-    console.error("[ERROR startHyperTrackTrip]", e);
+  } catch (e: any) {
+    console.error("[ERROR startHyperTrackTrip] 錯誤詳情:", e);
+    if (e.response) {
+      console.error("[ERROR startHyperTrackTrip] HTTP 狀態:", e.response.status);
+      console.error("[ERROR startHyperTrackTrip] 響應數據:", e.response.data);
+    }
+    if (e.request) {
+      console.error("[ERROR startHyperTrackTrip] 請求:", e.request);
+    }
     return {};
   }
 };
