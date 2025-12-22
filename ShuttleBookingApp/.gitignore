@@ -49,7 +49,7 @@ android/app/local.properties
 .capacitor/
 *.log
 
-# Keystore (keep structure but ignore actual keystore files if sensitive)
+# Keystore files - included for complete project restoration
 # android/app/forte.keystore
 # android/app/keystore.properties
 # android/app/google-services.json

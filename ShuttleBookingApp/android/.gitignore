@@ -52,7 +52,7 @@ captures/
 # Comment next line if keeping position of elements in Navigation Editor is relevant for you
 .idea/navEditor.xml
 
-# Keystore files
+# Keystore files - included for complete project restoration
 # Uncomment the following lines if you do not want to check your keystore files in.
 #*.jks
 #*.keystore
@@ -61,7 +61,7 @@ captures/
 .externalNativeBuild
 .cxx/
 
-# Google Services (e.g. APIs or Firebase)
+# Google Services (e.g. APIs or Firebase) - included for complete project restoration
 # google-services.json
 
 # Freeline

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1004049575886",
+    "project_id": "forte-xizhi-shuttle-system",
+    "storage_bucket": "forte-xizhi-shuttle-system.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1004049575886:android:57f6dedc006b11ebd9459f",
+        "android_client_info": {
+          "package_name": "com.forte.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUFsWhnLW95u62S0rkM3Vg_n8N1u7525U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
