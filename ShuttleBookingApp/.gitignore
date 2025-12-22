@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+# Production
+/dist
+/build
+
+# Misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Android
+android/.gradle/
+android/.idea/
+android/local.properties
+android/app/build/
+android/app/.cxx/
+android/.externalNativeBuild/
+android/captures/
+android/app/release/
+android/app/debug/
+android/build/
+android/.gradle/
+android/local.properties
+android/app/local.properties
+
+# Capacitor
+.capacitor/
+*.log
+
+# Keystore (keep structure but ignore actual keystore files if sensitive)
+# android/app/forte.keystore
+# android/app/keystore.properties
+# android/app/google-services.json
+

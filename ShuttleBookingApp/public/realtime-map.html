@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>即時位置 | Realtime GPS</title>
+<style>
+  body { 
+    margin: 0; 
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft JhengHei", sans-serif; 
+    background: #f5f5f5; 
+    overflow: hidden;
+  }
+  #app { 
+    display: flex; 
+    flex-direction: row; 
+    height: 100vh; 
+    position: relative;
+  }
+  #map { 
+    flex: 1; 
+    width: 100%; 
+  }
+  
+  /* 左侧覆盖面板 */
+  #overlay-panel {
+    position: absolute;
+    left: 16px;
+    top: 16px;
+    width: 340px;
+    max-width: calc(100vw - 32px);
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    padding: 24px;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+  }
+  
+  .panel-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  
+  .driver-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  
+  .status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #28a745;
+    box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
+  }
+  
+  .status-text {
+    font-size: 15px;
+    color: #333;
+    font-weight: 500;
+  }
+  
+  .driver-distance {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 28px;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+  }
+  
+  .driver-distance-label {
+    font-size: 13px;
+    color: #999;
+    margin-bottom: 6px;
+  }
+  
+  .eta-info {
+    font-size: 16px;
+    color: #333;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+  
+  /* 订单时间线 */
+  .order-timeline {
+    position: relative;
+    padding-left: 24px;
+  }
+  
+  .timeline-line {
+    position: absolute;
+    left: 7px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e0e0e0;
+  }
+  
+  .timeline-item {
+    position: relative;
+    margin-bottom: 28px;
+  }
+  
+  .timeline-marker {
+    position: absolute;
+    left: -20px;
+    top: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+  }
+  
+  .timeline-marker.active {
+    border-color: #28a745;
+    background: #28a745;
+  }
+  
+  .timeline-marker.completed {
+    border-color: #28a745;
+    background: #28a745;
+  }
+  
+  .timeline-marker.completed::after {
+    content: '✓';
+    color: white;
+    font-size: 10px;
+    font-weight: bold;
+  }
+  
+  .timeline-marker.flag {
+    background: #fff;
+    border-color: #28a745;
+  }
+  
+  .timeline-marker.flag::before {
+    content: '🚩';
+    font-size: 12px;
+  }
+  
+  .timeline-content {
+    margin-left: 0;
+  }
+  
+  .timeline-label {
+    font-size: 13px;
+    color: #999;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  
+  .timeline-station {
+    font-size: 16px;
+    color: #333;
+    font-weight: 600;
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+  
+  .timeline-eta {
+    font-size: 14px;
+    color: #28a745;
+    margin-top: 6px;
+    font-weight: 500;
+  }
+  
+  .timeline-eta.early {
+    color: #28a745;
+  }
+  
+  .timeline-eta.late {
+    color: #dc3545;
+  }
+  
+  .timeline-time {
+    font-size: 13px;
+    color: #666;
+    margin-top: 4px;
+  }
+  
+  .eta-detail {
+    font-size: 13px;
+    color: #28a745;
+    margin-top: 4px;
+    font-weight: 500;
+  }
+  
+  .hidden { display: none !important; }
+  
+  /* 响应式设计 */
+  @media (max-width: 768px) {
+    #overlay-panel {
+      width: calc(100vw - 32px);
+      max-width: 320px;
+    }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+  <div id="overlay-panel" class="hidden">
+    <div class="panel-title">即時位置</div>
+    
+    <div class="driver-status">
+      <div class="status-dot" id="status-dot"></div>
+      <span class="status-text" id="status-text">良好</span>
+    </div>
+    
+    <div class="driver-distance" id="driver-distance">
+      <div class="driver-distance-label">司機距離</div>
+      <div class="eta-info" id="eta-info">計算中...</div>
+    </div>
+    
+    <div class="order-timeline">
+      <div class="timeline-line"></div>
+      
+      <div class="timeline-item">
+        <div class="timeline-marker flag completed"></div>
+        <div class="timeline-content">
+          <div class="timeline-label">訂單開始</div>
+          <div class="timeline-time" id="order-start-time">--</div>
+        </div>
+      </div>
+      
+      <div class="timeline-item">
+        <div class="timeline-marker active" id="destination-marker"></div>
+        <div class="timeline-content">
+          <div class="timeline-station" id="destination-station">--</div>
+          <div class="timeline-eta" id="destination-eta">--</div>
+          <div class="eta-detail" id="eta-detail">--</div>
+        </div>
+      </div>
+      
+      <div class="timeline-item">
+        <div class="timeline-marker" id="complete-marker"></div>
+        <div class="timeline-content">
+          <div class="timeline-label">訂單尚未完成</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(async function() {
+  const qs = new URLSearchParams(location.search);
+  const key = qs.get('key');
+  const api = qs.get('api');
+  const trip = qs.get('trip');
+  const fbdb = qs.get('fbdb'); // Firebase RTDB URL (optional)
+  const fbkey = qs.get('fbkey'); // Firebase Web API key (optional)
+  const bookingApi = api ? api.replace('/driver-api2', '/booking-api') : null; // 获取booking-api地址
+  
+  const overlayPanel = document.getElementById('overlay-panel');
+  const statusDot = document.getElementById('status-dot');
+  const statusText = document.getElementById('status-text');
+  const driverDistance = document.getElementById('driver-distance');
+  const etaInfo = document.getElementById('eta-info');
+  const orderStartTime = document.getElementById('order-start-time');
+  const destinationStation = document.getElementById('destination-station');
+  const destinationEta = document.getElementById('destination-eta');
+  const etaDetail = document.getElementById('eta-detail');
+  const destinationMarker = document.getElementById('destination-marker');
+  const completeMarker = document.getElementById('complete-marker');
+  
+  if (!key) {
+    overlayPanel.classList.remove('hidden');
+    overlayPanel.innerHTML = '<div style="color: red; padding: 20px;">錯誤：網址缺少 key 參數</div>';
+    return;
+  }
+  if (!api) {
+    overlayPanel.classList.remove('hidden');
+    overlayPanel.innerHTML = '<div style="color: red; padding: 20px;">錯誤：網址缺少 api 參數</div>';
+    return;
+  }
+
+  // 1. Load Google Maps
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=geometry`;
+    s.async = true;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+
+  // 2. Init Map
+  const map = new google.maps.Map(document.getElementById('map'), {
+    center: { lat: 25.068, lng: 121.662 },
+    zoom: 14,
+    disableDefaultUI: false,
+    zoomControl: true,
+    mapTypeControl: false,
+    streetViewControl: false,
+  });
+  
+  const marker = new google.maps.Marker({
+    position: { lat: 25.068, lng: 121.662 },
+    map: map,
+    title: "司機位置",
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 10,
+      fillColor: "#4285F4",
+      fillOpacity: 1,
+      strokeColor: "white",
+      strokeWeight: 2,
+    },
+  });
+
+  // 站點座標映射
+  const STATION_COORDS = {
+    "福泰大飯店 Forte Hotel": { lat: 25.054964953523683, lng: 121.63077275881052 },
+    "南港展覽館捷運站 Nangang Exhibition Center - MRT Exit 3": { lat: 25.055017007293404, lng: 121.61818547695053 },
+    "南港火車站 Nangang Train Station": { lat: 25.052822671279454, lng: 121.60771823129633 },
+    "LaLaport Shopping Park": { lat: 25.05629820919232, lng: 121.61700981622211 },
+    "福泰大飯店(回) Forte Hotel (Back)": { lat: 25.054800375417987, lng: 121.63117576557792 },
+  };
+
+  // 計算兩點間距離（公尺）
+  function haversineDistance(lat1, lng1, lat2, lng2) {
+    const R = 6371000; // 地球半徑（公尺）
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  // 計算預計抵達時間（ETA）
+  function calculateETA(driverLat, driverLng, destinationLat, destinationLng) {
+    if (!driverLat || !driverLng || !destinationLat || !destinationLng) {
+      return null;
+    }
+    
+    const distance = haversineDistance(driverLat, driverLng, destinationLat, destinationLng);
+    // 假設平均車速為 40 km/h (約 11.11 m/s)
+    const avgSpeed = 11.11; // 公尺/秒
+    const timeSeconds = distance / avgSpeed;
+    const timeMinutes = Math.round(timeSeconds / 60);
+    
+    return {
+      distance: distance,
+      minutes: timeMinutes,
+      formatted: timeMinutes > 60 ? `${Math.floor(timeMinutes / 60)} 小時 ${timeMinutes % 60} 分鐘` : `${timeMinutes} 分鐘`
+    };
+  }
+
+  // 格式化時間
+  function formatTime(timestamp) {
+    if (!timestamp) return '--';
+    const date = new Date(timestamp);
+    const days = ['日', '一', '二', '三', '四', '五', '六'];
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const dayName = days[date.getDay()];
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes} ${month}/${day} 週${dayName}`;
+  }
+
+  // 格式化時間（簡短版，用於 ETA）
+  function formatTimeShort(timestamp) {
+    if (!timestamp) return '--';
+    const date = new Date(timestamp);
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
+
+  // 計算提前/延遲時間
+  function calculateTimeDifference(estimatedTime, scheduledTime) {
+    if (!estimatedTime || !scheduledTime) return null;
+    
+    const estimated = new Date(estimatedTime);
+    const scheduled = new Date(scheduledTime);
+    const diffMs = estimated.getTime() - scheduled.getTime();
+    const diffMinutes = Math.round(diffMs / (1000 * 60));
+    
+    if (Math.abs(diffMinutes) < 1) {
+      return { text: '準時', isEarly: true, minutes: 0 };
+    }
+    
+    const hours = Math.floor(Math.abs(diffMinutes) / 60);
+    const minutes = Math.abs(diffMinutes) % 60;
+    
+    if (diffMinutes < 0) {
+      // 提前
+      if (hours > 0) {
+        return { 
+          text: `提前 ${hours} 小時 ${minutes} 分鐘`, 
+          isEarly: true, 
+          minutes: Math.abs(diffMinutes) 
+        };
+      } else {
+        return { 
+          text: `提前 ${minutes} 分鐘`, 
+          isEarly: true, 
+          minutes: Math.abs(diffMinutes) 
+        };
+      }
+    } else {
+      // 延遲
+      if (hours > 0) {
+        return { 
+          text: `延遲 ${hours} 小時 ${minutes} 分鐘`, 
+          isEarly: false, 
+          minutes: diffMinutes 
+        };
+      } else {
+        return { 
+          text: `延遲 ${minutes} 分鐘`, 
+          isEarly: false, 
+          minutes: diffMinutes 
+        };
+      }
+    }
+  }
+
+  // 3. Route rendering (optional by trip)
+  let mainPolyline = null;
+  let walkedPolyline = null;
+  const drawRoute = async () => {
+    if (!trip) return;
+    try {
+      const url = api.replace(/\/$/, '') + `/api/driver/route?trip_id=${encodeURIComponent(trip)}`;
+      const r = await fetch(url);
+      const d = await r.json();
+      const path = (d && d.polyline && d.polyline.path) || null;
+      if (path && Array.isArray(path) && path.length > 1) {
+        const gPath = path.map(p => new google.maps.LatLng(p.lat, p.lng));
+        if (mainPolyline) mainPolyline.setMap(null);
+        mainPolyline = new google.maps.Polyline({
+          path: gPath,
+          strokeColor: '#0b63ce',
+          strokeOpacity: 0.8,
+          strokeWeight: 6,
+          map,
+        });
+        const bounds = new google.maps.LatLngBounds();
+        gPath.forEach(pt => bounds.extend(pt));
+        map.fitBounds(bounds);
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+  await drawRoute();
+
+  // 4. 獲取即時位置和訂單信息
+  let currentDriverPos = null;
+  let currentTripData = null;
+  
+  const fetchRealtimeData = async () => {
+    try {
+      // 獲取司機位置
+      const locationUrl = api.replace(/\/$/, '') + '/api/driver/location';
+      const locationRes = await fetch(locationUrl);
+      const locationData = await locationRes.json();
+      
+      if (locationData.status === 'error') {
+        statusText.textContent = '連線錯誤';
+        statusDot.style.background = '#dc3545';
+        return;
+      }
+      
+      if (typeof locationData.lat === 'number' && typeof locationData.lng === 'number') {
+        currentDriverPos = { lat: locationData.lat, lng: locationData.lng };
+        marker.setPosition(currentDriverPos);
+        map.panTo(currentDriverPos);
+        
+        // 更新司機狀態
+        statusText.textContent = '良好';
+        statusDot.style.background = '#28a745';
+        
+        // 更新已走過的路線
+        try {
+          if (mainPolyline) {
+            const path = mainPolyline.getPath().getArray();
+            let nearestIdx = 0;
+            let best = Infinity;
+            for (let i = 0; i < path.length; i++) {
+              const dx = path[i].lat() - currentDriverPos.lat;
+              const dy = path[i].lng() - currentDriverPos.lng;
+              const dist = dx * dx + dy * dy;
+              if (dist < best) { best = dist; nearestIdx = i; }
+            }
+            if (walkedPolyline) walkedPolyline.setMap(null);
+            walkedPolyline = new google.maps.Polyline({
+              path: path.slice(0, Math.max(1, nearestIdx)),
+              strokeColor: '#0b63ce',
+              strokeOpacity: 1,
+              strokeWeight: 8,
+              map,
+            });
+          }
+        } catch (e) {}
+      }
+      
+      // 獲取訂單信息（從 booking-api）
+      if (bookingApi) {
+        try {
+          const realtimeUrl = bookingApi.replace(/\/$/, '') + '/api/realtime/location';
+          const realtimeRes = await fetch(realtimeUrl);
+          const realtimeData = await realtimeRes.json();
+          
+          if (realtimeData && !realtimeData.error) {
+            currentTripData = realtimeData;
+            
+            // 更新訂單開始時間
+            if (realtimeData.current_trip_start_time) {
+              const startTime = new Date(parseInt(realtimeData.current_trip_start_time));
+              orderStartTime.textContent = formatTime(startTime);
+            } else if (realtimeData.current_trip_datetime) {
+              // 如果沒有start_time，嘗試從datetime解析
+              try {
+                const dtStr = realtimeData.current_trip_datetime;
+                const parts = dtStr.split(' ');
+                if (parts.length >= 2) {
+                  const datePart = parts[0].replace(/\//g, '-');
+                  const timePart = parts[1];
+                  const dateTime = new Date(`${datePart}T${timePart}:00`);
+                  orderStartTime.textContent = formatTime(dateTime);
+                }
+              } catch (e) {}
+            }
+            
+            // 更新目的地站點
+            const currentStation = realtimeData.current_trip_station || '';
+            if (currentStation && currentStation !== '所有站點已完成') {
+              destinationStation.textContent = currentStation;
+              
+              // 計算ETA
+              if (currentDriverPos && STATION_COORDS[currentStation]) {
+                const dest = STATION_COORDS[currentStation];
+                const eta = calculateETA(
+                  currentDriverPos.lat,
+                  currentDriverPos.lng,
+                  dest.lat,
+                  dest.lng
+                );
+                
+                if (eta) {
+                  // 更新司機距離顯示
+                  etaInfo.textContent = `約 ${eta.minutes} 分鐘`;
+                  
+                  // 計算預計抵達的具體時間
+                  const now = new Date();
+                  const arrivalTime = new Date(now.getTime() + eta.minutes * 60 * 1000);
+                  const arrivalTimeStr = formatTimeShort(arrivalTime);
+                  
+                  // 顯示預計抵達時間
+                  destinationEta.textContent = `預計抵達 ${arrivalTimeStr}`;
+                  
+                  // 計算與預定時間的差異（如果有預定時間）
+                  let timeDiffText = '';
+                  if (realtimeData.current_trip_datetime) {
+                    try {
+                      // 解析預定時間（格式：YYYY/MM/DD HH:MM）
+                      const dtStr = realtimeData.current_trip_datetime;
+                      const parts = dtStr.split(' ');
+                      if (parts.length >= 2) {
+                        const datePart = parts[0].replace(/\//g, '-');
+                        const timePart = parts[1];
+                        const scheduledTime = new Date(`${datePart}T${timePart}:00`);
+                        
+                        const timeDiff = calculateTimeDifference(arrivalTime, scheduledTime);
+                        if (timeDiff) {
+                          timeDiffText = `(${timeDiff.text})`;
+                          etaDetail.textContent = timeDiffText;
+                          etaDetail.className = `eta-detail ${timeDiff.isEarly ? 'early' : 'late'}`;
+                        }
+                      }
+                    } catch (e) {
+                      console.error('Failed to parse scheduled time:', e);
+                      etaDetail.textContent = '';
+                    }
+                  } else {
+                    etaDetail.textContent = '';
+                  }
+                  
+                  // 更新標記狀態
+                  destinationMarker.classList.add('active');
+                } else {
+                  destinationEta.textContent = '計算中...';
+                  etaDetail.textContent = '';
+                }
+              } else {
+                destinationEta.textContent = '等待位置更新...';
+                etaDetail.textContent = '';
+              }
+            } else {
+              destinationStation.textContent = '所有站點已完成';
+              destinationEta.textContent = '';
+              etaDetail.textContent = '';
+              destinationMarker.classList.remove('active');
+              destinationMarker.classList.add('completed');
+              completeMarker.classList.add('completed');
+            }
+            
+            // 顯示面板
+            overlayPanel.classList.remove('hidden');
+          }
+        } catch (e) {
+          console.error('Failed to fetch realtime data:', e);
+        }
+      }
+    } catch (e) {
+      statusText.textContent = '連線中...';
+      statusDot.style.background = '#ffc107';
+      console.error('Failed to fetch location:', e);
+    }
+  };
+
+  // 初始載入
+  fetchRealtimeData();
+  
+  // 每 30 秒更新一次
+  const AUTO_REFRESH_MS = 30 * 1000;
+  setInterval(fetchRealtimeData, AUTO_REFRESH_MS);
+  
+  // Firebase watch toggle（按需啟用）
+  let unsub = null;
+  const makeWatchBtn = () => {
+    if (!fbdb || !fbkey) return;
+    
+    const btn = document.createElement('button');
+    btn.textContent = '即時監聽';
+    btn.style.cssText = 'position: absolute; top: 16px; right: 16px; z-index: 1001; padding: 8px 16px; background: #fff; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.1);';
+    btn.onclick = async () => {
+      if (!unsub) {
+        try {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js';
+            s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
+          });
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js';
+            s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
+          });
+          const app = firebase.initializeApp({ apiKey: fbkey, databaseURL: fbdb });
+          const dbref = firebase.database().ref('/driver_location');
+          const handler = (snap) => {
+            const d = snap.val();
+            if (d && typeof d.lat === 'number' && typeof d.lng === 'number') {
+              currentDriverPos = { lat: d.lat, lng: d.lng };
+              marker.setPosition(currentDriverPos);
+              map.panTo(currentDriverPos);
+              statusText.textContent = '良好';
+              statusDot.style.background = '#28a745';
+              // 重新計算ETA
+              if (currentTripData && currentTripData.current_trip_station) {
+                fetchRealtimeData();
+              }
+            }
+          };
+          dbref.on('value', handler);
+          unsub = () => dbref.off('value', handler);
+          btn.textContent = '停止監聽';
+        } catch (e) {
+          console.error('Firebase init error:', e);
+        }
+      } else {
+        try { unsub(); } catch {}
+        unsub = null;
+        btn.textContent = '即時監聽';
+      }
+    };
+    document.body.appendChild(btn);
+  };
+  makeWatchBtn();
+
+})();
+</script>
+</body>
+</html>
