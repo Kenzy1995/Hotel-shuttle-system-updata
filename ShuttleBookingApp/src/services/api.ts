@@ -217,7 +217,6 @@ export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: P
 
     return { trips, tripPassengers, allPassengers };
   } catch (e) {
-    console.error("Fetch All Data Error", e);
     return { trips: [], tripPassengers: [], allPassengers: [] };
   }
 };
@@ -260,7 +259,6 @@ export const confirmBoarding = async (qrcode: string): Promise<{ success: boolea
           return { success: false, message: data.message || data.status, main_datetime: data.main_datetime };
       }
   } catch (e: any) {
-    console.error(e);
     return { success: false, message: e.message };
   }
 };
@@ -279,7 +277,6 @@ export const markNoShow = async (bookingId: string): Promise<boolean> => {
     const res = await axios.post(`${API_BASE}/api/driver/no_show`, { booking_id: bookingId });
     return res.data && res.data.status === 'success';
   } catch (e) {
-    console.error(e);
     return false;
   }
 };
@@ -289,7 +286,6 @@ export const markManualBoarding = async (bookingId: string): Promise<boolean> =>
     const res = await axios.post(`${API_BASE}/api/driver/manual_boarding`, { booking_id: bookingId });
     return res.data && res.data.status === 'success';
   } catch (e) {
-    console.error(e);
     return false;
   }
 };
@@ -299,7 +295,6 @@ export const updateTripStatus = async (mainDatetime: string, status: '已發車'
     const res = await axios.post(`${API_BASE}/api/driver/trip_status`, { main_datetime: mainDatetime, status });
     return res.data && res.data.status === 'success';
   } catch (e) {
-    console.error(e);
     return false;
   }
 };
@@ -309,7 +304,6 @@ export const fetchTripRoute = async (mainDatetime: string): Promise<{ stops: Arr
     const res = await axios.get(`${API_BASE}/api/driver/trip_route`, { params: { main_datetime: mainDatetime } });
     return res.data || { stops: [] };
   } catch (e) {
-    console.error(e);
     return { stops: [] };
   }
 };
@@ -323,7 +317,6 @@ export const startGoogleTripStart = async (params: {
     const res = await axios.post(`${API_BASE}/api/driver/google/trip_start`, params);
     return res.data || {};
   } catch (e) {
-    console.error(e);
     return {};
   }
 };
@@ -338,7 +331,6 @@ export const completeGoogleTrip = async (tripId: string, mainDatetime?: string):
     });
     return res.data && res.data.status === 'success';
   } catch (e) {
-    console.error(e);
     return false;
   }
 };

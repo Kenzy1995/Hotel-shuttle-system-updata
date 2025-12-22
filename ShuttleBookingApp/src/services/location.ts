@@ -25,7 +25,6 @@ export const sendCurrentLocation = async (tripId: string | null = null, forceSen
       timestamp: coordinates.timestamp,
       trip_id: tripId // Pass trip_id
     });
-    console.log('Location sent:', coordinates.coords.latitude, coordinates.coords.longitude, 'Trip ID:', tripId);
     
     const location = {
       lat: coordinates.coords.latitude,
@@ -38,7 +37,6 @@ export const sendCurrentLocation = async (tripId: string | null = null, forceSen
     
     return location;
   } catch (e) {
-    console.error('Error sending location', e);
     return null;
   }
 };

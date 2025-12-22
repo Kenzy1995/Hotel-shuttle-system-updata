@@ -153,6 +153,7 @@ const computeUpDownStations = (p: Passenger) => {
   const isUp = (v?: string) => v && (v === "上" || v.includes("上"));
   const isDown = (v?: string) => v && (v === "下" || v.includes("下"));
 
+  // 優先使用 hotel_go, mrt, train, mall, hotel_back 欄位
   if (isUp(p.hotel_go)) upList.push("福泰大飯店 (去)");
   if (isUp(p.mrt)) upList.push("南港捷運站");
   if (isUp(p.train)) upList.push("南港火車站");
@@ -164,6 +165,36 @@ const computeUpDownStations = (p: Passenger) => {
   if (isDown(p.train)) downList.push("南港火車站");
   if (isDown(p.mall)) downList.push("LaLaport 購物中心");
   if (isDown(p.hotel_back)) downList.push("福泰大飯店 (回)");
+
+  // 如果上述欄位都沒有資料，嘗試從 station 欄位解析
+  if (upList.length === 0 && p.station) {
+    const stationName = normalizeStationName(p);
+    if (stationName && ((p.updown || '').includes('上') || (p.updown || '').includes('上車'))) {
+      upList.push(stationName);
+    }
+  }
+  if (downList.length === 0 && p.station) {
+    const stationName = normalizeStationName(p);
+    if (stationName && ((p.updown || '').includes('下') || (p.updown || '').includes('下車'))) {
+      downList.push(stationName);
+    }
+  }
+
+  // 如果還是沒有資料，但 station 欄位有值，根據 updown 欄位判斷
+  if (upList.length === 0 && downList.length === 0 && p.station) {
+    const stationName = normalizeStationName(p);
+    if (stationName) {
+      const updown = (p.updown || '').toLowerCase();
+      if (updown.includes('上') || updown.includes('up')) {
+        upList.push(stationName);
+      } else if (updown.includes('下') || updown.includes('down')) {
+        downList.push(stationName);
+      } else {
+        // 如果無法判斷，預設為上車站點
+        upList.push(stationName);
+      }
+    }
+  }
 
   return {
     up: upList.join("、"),
@@ -1234,7 +1265,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
       return new Date(dtStr).getTime();
     };
     const allowedSet = new Set<string>();
-    const threshold = nowTs - 45 * 60 * 1000;
+    const threshold = nowTs - 60 * 60 * 1000;
     trips.forEach(t => {
       const ts = computeTripTs(t);
       if (ts >= threshold) {
@@ -1529,6 +1560,24 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                    <IonSelectOption value="notify_sound_4">音效 4</IonSelectOption>
                                 </IonSelect>
                                 <button onClick={() => { const audio = new Audio(`/assets/sounds/${selectedSound}.mp3`); audio.play(); }} style={{marginTop: '8px', width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd', background: '#f7f7f7', fontSize: '14px', fontWeight: 600}}>試播音效</button>
+                                <button onClick={async () => {
+                                  try {
+                                    const perm = await LocalNotifications.checkPermissions();
+                                    if (perm.display !== 'granted') {
+                                      await LocalNotifications.requestPermissions();
+                                    }
+                                    await ensureNotificationChannel(selectedSound);
+                                    scheduleDepartureNotification(
+                                      new Date(Date.now() + 3000),
+                                      0,
+                                      notificationSoundEnabled,
+                                      selectedSound
+                                    );
+                                    setToastMessage('已觸發通知測試');
+                                  } catch (e) {
+                                    setToastMessage('通知測試失敗，請檢查通知權限');
+                                  }
+                                }} style={{marginTop: '8px', width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd', background: '#f0f8ff', fontSize: '14px', fontWeight: 600, color: '#0066cc'}}>通知測試</button>
                              </div>
                           )}
                        </div>
