@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { IonContent, IonPage, IonToast, IonRefresher, IonRefresherContent, RefresherEventDetail, IonIcon, IonAlert, IonToggle, IonSelect, IonSelectOption } from '@ionic/react';
 import { call, chevronDownOutline, chevronForwardOutline, constructOutline, locationOutline, notificationsOutline, textOutline, cloudDownloadOutline } from 'ionicons/icons';
 import { Geolocation } from '@capacitor/geolocation';
@@ -33,12 +33,36 @@ const truncateName = (name: string, limit = 5) => {
   return arr.slice(0, limit).join('') + '…';
 };
 
-const measureText = (text: string) => {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return 100;
-  ctx.font = '600 19px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-  return ctx.measureText(text || '').width;
+// 優化：緩存 measureText 的計算結果，避免重複計算
+const measureTextCache = new Map<string, number>();
+const measureTextCanvas = document.createElement('canvas');
+const measureTextCtx = measureTextCanvas.getContext('2d');
+if (measureTextCtx) {
+  measureTextCtx.font = '600 19px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+}
+
+const measureText = (text: string): number => {
+  if (!text) return 100;
+  
+  // 檢查緩存
+  if (measureTextCache.has(text)) {
+    return measureTextCache.get(text)!;
+  }
+  
+  // 計算並緩存
+  if (!measureTextCtx) return 100;
+  const width = measureTextCtx.measureText(text).width;
+  measureTextCache.set(text, width);
+  
+  // 限制緩存大小（避免內存泄漏）
+  if (measureTextCache.size > 1000) {
+    const firstKey = measureTextCache.keys().next().value;
+    if (firstKey !== undefined) {
+      measureTextCache.delete(firstKey);
+    }
+  }
+  
+  return width;
 };
 const normalizeStationName = (p: Passenger): string => {
   const raw = (p.station || "").trim();
@@ -90,9 +114,37 @@ const formatDateTimeLabel = (dtStr?: string): string => {
   return `${y}/${m.padStart(2, "0")}/${day.padStart(2, "0")} ${timePart}`;
 };
 
+// 時間格式正規化函數：將單數字小時轉換為兩位數格式
+// 例如："0:50" -> "00:50", "8:30" -> "08:30", "10:00" -> "10:00"
+const normalizeTimeFormat = (timeStr: string): string => {
+  if (!timeStr) return timeStr;
+  // 匹配時間格式 H:MM 或 HH:MM
+  const timeMatch = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+  if (timeMatch) {
+    const hours = timeMatch[1].padStart(2, '0');
+    const minutes = timeMatch[2];
+    return `${hours}:${minutes}`;
+  }
+  return timeStr;
+};
+
+// 日期時間字符串正規化：確保時間部分為 HH:MM 格式
+const normalizeDateTimeFormat = (dtStr: string): string => {
+  if (!dtStr) return dtStr;
+  const parts = dtStr.trim().split(" ");
+  if (parts.length === 2) {
+    const datePart = parts[0];
+    const timePart = normalizeTimeFormat(parts[1]);
+    return `${datePart} ${timePart}`;
+  }
+  return dtStr;
+};
+
 const parseDateTime = (dtStr: string): number => {
   if (!dtStr) return 0;
-  const [datePart, timePartRaw] = dtStr.trim().split(" ");
+  // 先正規化時間格式
+  const normalized = normalizeDateTimeFormat(dtStr);
+  const [datePart, timePartRaw] = normalized.trim().split(" ");
   const d = datePart.replace(/-/g, "/").split("/");
   const y = d[0] || "0000";
   const m = String(d[1] || "01").padStart(2, "0");
@@ -119,7 +171,8 @@ const isWithinActionWindowTs = (ts: number, windowMinutes = 60): boolean => {
 
 const isTripWithinActionWindow = (t?: Trip | null, windowMinutes = 60): boolean => {
   if (!t) return false;
-  const ts = new Date(`${t.date.replace(/-/g,'/')} ${t.time}`).getTime();
+  const normalizedTime = normalizeTimeFormat(t.time);
+  const ts = new Date(`${t.date.replace(/-/g,'/')} ${normalizedTime}`).getTime();
   return isWithinActionWindowTs(ts, windowMinutes);
 };
 
@@ -127,7 +180,8 @@ const isTripWithinActionWindow = (t?: Trip | null, windowMinutes = 60): boolean 
 const isTripWithinStartWindow = (t?: Trip | null): boolean => {
   if (!t) return false;
   try {
-    const tripTime = new Date(`${t.date.replace(/-/g,'/')} ${t.time}`).getTime();
+    const normalizedTime = normalizeTimeFormat(t.time);
+    const tripTime = new Date(`${t.date.replace(/-/g,'/')} ${normalizedTime}`).getTime();
     const now = Date.now();
     const BEFORE_30_MIN = 30 * 60 * 1000; // 發車前30分鐘
     const AFTER_1_HOUR = 60 * 60 * 1000; // 發車後1小時
@@ -142,11 +196,22 @@ const isPassengerTripWithinWindow = (p?: Passenger | null, windowMinutes = 60): 
   if (!p) return false;
   const dtStr = (p.main_datetime || '').replace(/-/g,'/');
   if (!dtStr) return false;
-  const ts = new Date(dtStr).getTime();
+  const normalized = normalizeDateTimeFormat(dtStr);
+  const ts = new Date(normalized).getTime();
   return isWithinActionWindowTs(ts, windowMinutes);
 };
 
+// 使用 Map 緩存計算結果，避免重複計算
+const computeUpDownStationsCache = new Map<string, { up: string; down: string }>();
+
 const computeUpDownStations = (p: Passenger) => {
+  // 創建緩存鍵：基於乘客的關鍵屬性
+  const cacheKey = `${p.bookingCode || ''}_${p.hotel_go || ''}_${p.mrt || ''}_${p.train || ''}_${p.mall || ''}_${p.hotel_back || ''}_${p.station || ''}_${p.updown || ''}_${p.direction || ''}`;
+  
+  // 檢查緩存
+  if (computeUpDownStationsCache.has(cacheKey)) {
+    return computeUpDownStationsCache.get(cacheKey)!;
+  }
   const upList: string[] = [];
   const downList: string[] = [];
 
@@ -196,10 +261,76 @@ const computeUpDownStations = (p: Passenger) => {
     }
   }
 
-  return {
+  // 增強 fallback 邏輯：當 hotel_go 等字段為空時，根據 direction 和 station 來推斷站點
+  const stationRaw = (p.station || "").trim();
+  const direction = p.direction || "";
+  const updown = (p.updown || "").trim();
+  
+  // 特別處理「去程」的情況：如果 station 包含「福泰大飯店」且 direction 為「去程」
+  if (upList.length === 0 && (stationRaw.includes("福泰大飯店") || stationRaw.includes("Forte Hotel"))) {
+    if (direction === "去程" && (updown.includes("上") || updown.includes("上車") || updown === "")) {
+      upList.push("福泰大飯店 (去)");
+    }
+  }
+  
+  // 特別處理「回程」的情況：如果 station 包含「福泰大飯店」且 direction 為「回程」且 updown 為「下車」
+  if (downList.length === 0 && (stationRaw.includes("福泰大飯店") || stationRaw.includes("Forte Hotel"))) {
+    if (direction === "回程" && (updown.includes("下") || updown.includes("下車"))) {
+      downList.push("福泰大飯店 (回)");
+    }
+  }
+
+  // 如果 hotel_go 等字段為空，但 direction 和 station 有值，嘗試推斷其他站點
+  if (upList.length === 0 && downList.length === 0 && stationRaw && direction) {
+    const stationName = normalizeStationName(p);
+    if (stationName && stationName !== "其他站點") {
+      // 根據 direction 和 updown 判斷
+      if (direction === "去程") {
+        if (updown.includes("上") || updown.includes("上車") || updown === "") {
+          upList.push(stationName);
+        } else if (updown.includes("下") || updown.includes("下車")) {
+          downList.push(stationName);
+        } else {
+          // 預設為上車站點
+          upList.push(stationName);
+        }
+      } else if (direction === "回程") {
+        if (updown.includes("上") || updown.includes("上車")) {
+          upList.push(stationName);
+        } else if (updown.includes("下") || updown.includes("下車") || updown === "") {
+          downList.push(stationName);
+        } else {
+          // 預設為下車站點
+          downList.push(stationName);
+        }
+      }
+    }
+  }
+
+  // 最終 fallback：如果去程且上車站點為空，預設顯示"福泰大飯店 (去)"
+  if (upList.length === 0 && direction === "去程") {
+    upList.push("福泰大飯店 (去)");
+  }
+  
+  // 最終 fallback：如果回程且下車站點為空，預設顯示"福泰大飯店 (回)"
+  if (downList.length === 0 && direction === "回程") {
+    downList.push("福泰大飯店 (回)");
+  }
+
+  const result = {
     up: upList.join("、"),
     down: downList.join("、")
   };
+  
+  // 緩存結果（限制緩存大小，避免內存泄漏）
+  if (computeUpDownStationsCache.size > 1000) {
+    // 清除最舊的 500 個緩存項
+    const keysToDelete = Array.from(computeUpDownStationsCache.keys()).slice(0, 500);
+    keysToDelete.forEach(key => computeUpDownStationsCache.delete(key));
+  }
+  computeUpDownStationsCache.set(cacheKey, result);
+  
+  return result;
 };
 
 const Home: React.FC = () => {
@@ -348,16 +479,18 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     checkPermissions();
     ensureNotificationChannel(selectedSound);
     
-    // 監聽通知觸發事件，在通知真正顯示時觸發震動
+    // 監聽通知觸發事件，確保震動和音效同步
     const addNotificationReceivedListener = async () => {
       try {
         await LocalNotifications.addListener('localNotificationReceived', (notification) => {
-          // 當通知真正觸發時，觸發震動（統一為長震1秒*2次）
+          // 通知通道的 vibration: true 會自動處理震動，與音效同步
+          // 但為了確保震動效果更明顯，我們在通知觸發時立即同步觸發震動
+          // 這樣可以確保震動和音效同時出現
           if (Capacitor.getPlatform() === 'android') {
             try {
-              // 統一為長震1秒*2次
+              // 立即觸發震動，與音效同步
               Haptics.vibrate({ duration: 1000 }).catch(() => {});
-              // 等待1秒後再次震動
+              // 等待1秒後再次震動（長震1秒*2次）
               setTimeout(() => {
                 Haptics.vibrate({ duration: 1000 }).catch(() => {});
               }, 1000);
@@ -595,24 +728,25 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     return total;
   };
 
-  const getFirstTrip = (): Trip | null => {
+  // 優化：使用 useMemo 緩存計算結果
+  const firstTrip = useMemo((): Trip | null => {
     if (!trips || trips.length === 0) return null;
     const sorted = [...trips].sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       return a.time.localeCompare(b.time);
     });
     return sorted[0] || null;
-  };
-  const isCurrentTripFirst = (): boolean => {
-    const first = getFirstTrip();
-    return !!(first && currentTrip && first.id === currentTrip.id);
-  };
-  const isDetailPassengerInFirstTrip = (): boolean => {
-    const first = getFirstTrip();
-    if (!first || !showDetailPassenger) return false;
+  }, [trips]);
+  
+  const isCurrentTripFirst = useMemo((): boolean => {
+    return !!(firstTrip && currentTrip && firstTrip.id === currentTrip.id);
+  }, [firstTrip, currentTrip]);
+  
+  const isDetailPassengerInFirstTrip = useMemo((): boolean => {
+    if (!firstTrip || !showDetailPassenger) return false;
     const tp = allTripPassengers.find(x => x.bookingCode === showDetailPassenger!.bookingCode);
-    return !!(tp && tp.tripId === first.id);
-  };
+    return !!(tp && tp.tripId === firstTrip.id);
+  }, [firstTrip, showDetailPassenger, allTripPassengers]);
   const [exitConfirm, setExitConfirm] = useState(false);
   const [exitPrompt, setExitPrompt] = useState(false);
   const exitPromptAtRef = useRef<number>(0);
@@ -862,14 +996,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
 
     if (firstTrip) {
       handleTripClick(firstTrip, true);
-      if (notificationSoundEnabled) {
-        scheduleDepartureNotification(
-          new Date(`${firstTrip.date} ${firstTrip.time}`.replace(/-/g, '/')),
-          notificationMinutes,
-          true,
-          selectedSound
-        );
-      }
+      // 通知會由 scheduleTodayNotifications() 統一處理，這裡不需要重複調用
     } else {
       setToastMessage("目前沒有最近的發車班次");
     }
@@ -889,7 +1016,8 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     const addId = (id: string) => { setIds.add(id); localStorage.setItem(key, Array.from(setIds).join(',')); };
     for (const t of trips) {
       if (t.date !== todayStrDash) continue;
-      const tripDate = new Date(`${t.date} ${t.time}`.replace(/-/g, '/'));
+      const normalizedTime = normalizeTimeFormat(t.time);
+      const tripDate = new Date(`${t.date} ${normalizedTime}`.replace(/-/g, '/'));
       const notifyId = String(Math.floor((tripDate.getTime() - notificationMinutes * 60000) / 1000));
       if (setIds.has(notifyId)) continue;
       scheduleDepartureNotification(tripDate, notificationMinutes, true, selectedSound);
@@ -1011,18 +1139,16 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     const parts2 = (code || '').trim().split(':');
     const bookingId2 = parts2.length >= 2 ? parts2[1] : '';
     const paxLocal = allPassengers.find(p => p.bookingCode === bookingId2) || passengers.find(p => p.bookingCode === bookingId2);
-    const nearest = findNearestTripFromNow(trips);
-    if (!nearest) { setToastMessage('目前沒有最近班次'); setScanVerifying(false); return; }
-    const nearestStr = `${nearest.date.replace(/-/g,'/')}` + ' ' + `${nearest.time}`;
     const paxTripStr = (paxLocal?.main_datetime || '').replace(/-/g,'/');
     const nowTs = Date.now();
-    const depTs = paxTripStr ? new Date(paxTripStr).getTime() : 0;
+    const normalizedTripStr = paxTripStr ? normalizeDateTimeFormat(paxTripStr) : '';
+    const depTs = normalizedTripStr ? new Date(normalizedTripStr).getTime() : 0;
     const diffSec = depTs ? (nowTs - depTs) / 1000 : 0;
     setToastContext('scan');
     if (!paxLocal) { setToastSuccess(false); setToastMessage('QR 不在目前資料'); setScanVerifying(false); return; }
     if (paxLocal.status === 'boarded') { setToastSuccess(false); setToastMessage('此乘客已上車，不重複核銷'); setScanVerifying(false); return; }
     if (!paxTripStr) { setToastSuccess(false); setToastMessage('未找到乘客主班次時間'); setScanVerifying(false); return; }
-    if (paxTripStr !== nearestStr) { setToastSuccess(false); setToastMessage('非最近班次，未核銷'); setScanVerifying(false); return; }
+    // 時間範圍檢查（與後端邏輯一致）：允許核銷的條件是 主班次時間 - 30分鐘 <= 現在時間 <= 主班次時間 + 60分鐘
     if (diffSec > 60 * 60) { setToastSuccess(false); setToastMessage('此班次已逾期，未核銷'); setScanVerifying(false); return; }
     if (diffSec < -30 * 60) { setToastSuccess(false); setToastMessage('尚未發車（早於 30 分鐘）'); setScanVerifying(false); return; }
 
@@ -1139,7 +1265,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
 
     const pad = measureText('字');
     const wStatus = (Math.max(60, Math.max(measureText('狀態'), measureText('已上車')) + pad - pad)) * colScale;
-    const wBooking = (Math.max(80, Math.max(measureText('預約編號'), ...filtered.map(p => measureText(p.bookingCode))) + pad - pad)) * colScale;
+    const wBooking = (Math.max(80, Math.max(measureText('預約編號'), ...filtered.map(p => measureText(p.bookingCode))) + pad - pad + 2 * pad)) * colScale;
     const wUpDown = Math.max(measureText('上下'), ...filtered.map(p => measureText(p.updown || ''))) + pad;
     const wRoom = (Math.max(measureText('房號'), ...filtered.map(p => measureText(p.room || ''))) + pad) * colScale;
     const wName = (Math.max(120, Math.max(measureText('姓名'), ...filtered.map(p => measureText(truncateName(p.name || '')))) + pad - 2*pad)) * colScale;
@@ -1210,14 +1336,35 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     if (loadingTrip) return <div className="no-data" style={{textAlign:'center', marginTop:'20px'}}>載入中...</div>;
     const filtered = filterList(passengers).filter(p => normalizeStationName(p) === stationFilter);
     if (filtered.length === 0) return null;
+    
+    // 優化：預先計算所有需要的文本寬度，避免在 Math.max 中重複計算
     const pad = measureText('字');
-    const wStatus = (Math.max(60, Math.max(measureText('狀態'), measureText('已上車')) + pad - pad)) * colScale;
-    const wBooking = (Math.max(80, Math.max(measureText('預約編號'), ...filtered.map(p => measureText(p.bookingCode))) + pad - pad)) * colScale;
-    const wUpDown = Math.max(measureText('上下'), ...filtered.map(p => measureText(p.updown || ''))) + pad;
-    const wRoom = (Math.max(measureText('房號'), ...filtered.map(p => measureText(p.room || ''))) + pad) * colScale;
-    const wName = (Math.max(120, Math.max(measureText('姓名'), ...filtered.map(p => measureText(truncateName(p.name || '')))) + pad - 2*pad)) * colScale;
-    const wPax = (Math.max(60, Math.max(measureText('人數'), ...filtered.map(p => measureText(String(p.pax || '')))) + pad - 2*pad)) * colScale;
-    const wPhone = (Math.max(100, Math.max(measureText('電話'), ...filtered.map(p => measureText(p.phone || ''))) + pad - 3*pad)) * colScale;
+    const textWidths = {
+      status: measureText('狀態'),
+      statusBoard: measureText('已上車'),
+      booking: measureText('預約編號'),
+      updown: measureText('上下'),
+      room: measureText('房號'),
+      name: measureText('姓名'),
+      pax: measureText('人數'),
+      phone: measureText('電話')
+    };
+    
+    // 預先計算所有乘客相關的文本寬度
+    const bookingWidths = filtered.map(p => measureText(p.bookingCode));
+    const updownWidths = filtered.map(p => measureText(p.updown || ''));
+    const roomWidths = filtered.map(p => measureText(p.room || ''));
+    const nameWidths = filtered.map(p => measureText(truncateName(p.name || '')));
+    const paxWidths = filtered.map(p => measureText(String(p.pax || '')));
+    const phoneWidths = filtered.map(p => measureText(p.phone || ''));
+    
+    const wStatus = (Math.max(60, Math.max(textWidths.status, textWidths.statusBoard) + pad - pad)) * colScale;
+    const wBooking = (Math.max(80, Math.max(textWidths.booking, ...bookingWidths) + pad - pad + 2 * pad)) * colScale;
+    const wUpDown = Math.max(textWidths.updown, ...updownWidths) + pad;
+    const wRoom = (Math.max(textWidths.room, ...roomWidths) + pad) * colScale;
+    const wName = (Math.max(120, Math.max(textWidths.name, ...nameWidths) + pad - 2*pad)) * colScale;
+    const wPax = (Math.max(60, Math.max(textWidths.pax, ...paxWidths) + pad - 2*pad)) * colScale;
+    const wPhone = (Math.max(100, Math.max(textWidths.phone, ...phoneWidths) + pad - 3*pad)) * colScale;
     const cols = [wStatus,wBooking,wUpDown,wRoom,wName,wPax,wPhone].map(w=>`${Math.ceil(w)}px`).join(' ');
     const minW = [wStatus,wBooking,wUpDown,wRoom,wName,wPax,wPhone].reduce((a,b)=>a+b,0) + 40;
     return (
@@ -1251,48 +1398,57 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
     const filtered = filterList(allPassengers);
     if (filtered.length === 0) return <div className="no-data">目前沒有乘客紀錄 (或無符合搜尋)。</div>;
 
+    // 統一時間格式處理：確保 main_datetime 格式為 YYYY/MM/DD HH:MM
     const byBooking = new Map<string, Passenger>();
     allTripPassengers.forEach(tp => { byBooking.set(tp.bookingCode, tp); });
-    const nowTs = Date.now();
     const normalized = filtered.map(p => {
       const dtRaw = p.main_datetime || byBooking.get(p.bookingCode)?.main_datetime || '';
+      // 統一格式：將 - 轉換為 /，確保格式一致
       const dt = dtRaw ? dtRaw.replace(/-/g, '/') : '';
       return { ...p, main_datetime: dt };
     });
 
-    const computeTripTs = (t: Trip) => {
-      const dtStr = `${t.date.replace(/-/g,'/')}` + ' ' + `${t.time}`;
-      return new Date(dtStr).getTime();
-    };
-    const allowedSet = new Set<string>();
-    const threshold = nowTs - 60 * 60 * 1000;
-    trips.forEach(t => {
-      const ts = computeTripTs(t);
-      if (ts >= threshold) {
-        allowedSet.add(`${t.date.replace(/-/g,'/')}` + ' ' + `${t.time}`);
-      }
-    });
-    const kept = normalized.filter(p => allowedSet.has(p.main_datetime || ''));
-    if (kept.length === 0) return <div className="no-data">目前沒有可顯示的班次</div>;
+    // 直接使用後端已過濾的數據，不再進行額外過濾
+    // 後端已經過濾了主班次時間 >= NOW()-1小時 的數據
+    if (normalized.length === 0) return <div className="no-data">目前沒有可顯示的班次</div>;
 
     const groups: Record<string, Passenger[]> = {};
-    for (const p of kept) {
+    for (const p of normalized) {
       const k = (p.main_datetime || '').split(' ')[0];
       if (!groups[k]) groups[k] = [];
       groups[k].push(p);
     }
     const keys = Object.keys(groups).sort((a, b) => parseDateTime(`${a} 00:00`) - parseDateTime(`${b} 00:00`));
 
+    // 優化：預先計算所有需要的文本寬度，避免在 Math.max 中重複計算
     const pad = measureText('字');
-    const wTime = (Math.max(measureText('班次'), ...kept.map(p => measureText(((p.main_datetime||'').split(' ')[1]||'')))) + pad) * colScale;
-    let wStatus = (Math.max(measureText('狀態'), measureText('已上車')) + pad) * colScale;
-    let wBooking = (Math.max(measureText('預約編號'), ...kept.map(p => measureText(p.bookingCode))) + pad) * colScale;
+    const textWidths = {
+      schedule: measureText('班次'),
+      status: measureText('狀態'),
+      statusBoard: measureText('已上車'),
+      booking: measureText('預約編號'),
+      name: measureText('姓名'),
+      pax: measureText('人數'),
+      mall: measureText('LaLaport')
+    };
+    
+    // 預先計算所有乘客相關的文本寬度（使用 normalized，後端已過濾）
+    const allPassengersList = Object.values(groups).flat();
+    const timeWidths = allPassengersList.map(p => measureText(((p.main_datetime||'').split(' ')[1]||'')));
+    const bookingWidths = allPassengersList.map(p => measureText(p.bookingCode));
+    const nameWidths = allPassengersList.map(p => measureText(truncateName(p.name || '')));
+    const paxWidths = allPassengersList.map(p => measureText(String(p.pax || '')));
+    const mallWidths = allPassengersList.map(p => measureText(p.mall || ''));
+    
+    const wTime = (Math.max(textWidths.schedule, ...timeWidths) + pad) * colScale;
+    let wStatus = (Math.max(textWidths.status, textWidths.statusBoard) + pad) * colScale;
+    let wBooking = (Math.max(textWidths.booking, ...bookingWidths) + pad + 2 * pad) * colScale;
     wBooking = Math.max(1, wBooking - 1*pad);
-    let wName = (Math.max(measureText('姓名'), ...kept.map(p => measureText(truncateName(p.name || '')))) + pad) * colScale;
-    let wPax = (Math.max(measureText('人數'), ...kept.map(p => measureText(String(p.pax || '')))) + pad) * colScale;
-    const wMall = (Math.max(measureText('LaLaport'), ...kept.map(p => measureText(p.mall || ''))) + pad) * colScale;
+    let wName = (Math.max(textWidths.name, ...nameWidths) + pad) * colScale;
+    let wPax = (Math.max(textWidths.pax, ...paxWidths) + pad) * colScale;
+    const wMall = (Math.max(textWidths.mall, ...mallWidths) + pad) * colScale;
     const wStation = wMall;
-    let wRoom = (Math.max(measureText('房號'), ...kept.map(p => measureText(p.room || ''))) + pad) * colScale;
+    let wRoom = (Math.max(measureText('房號'), ...allPassengersList.map(p => measureText(p.room || ''))) + pad) * colScale;
     wStatus = Math.max(1, wStatus - 1*pad);
     wRoom = Math.max(1, wRoom + 1*pad);
     const allCols = [wTime,wStatus,wBooking,wName,wRoom,wPax,wStation,wStation,wStation,wStation,wStation].map(w=>`${Math.ceil(w)}px`).join(' ');
@@ -1571,7 +1727,8 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                                       new Date(Date.now() + 3000),
                                       0,
                                       notificationSoundEnabled,
-                                      selectedSound
+                                      selectedSound,
+                                      true // skipCheck = true，允許測試通知重複觸發
                                     );
                                     setToastMessage('已觸發通知測試');
                                   } catch (e) {
@@ -1596,7 +1753,7 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                     {expandedSection === 'font' && (
                        <div className="section-content">
                           <div className="menu-item column-item">
-                              <span className="menu-label">字體縮放（50%~200%）</span>
+                              <span className="menu-label">字體縮放（50%~150%）</span>
                               <div className="font-size-controls" style={{width:'100%'}}>
                                 <input 
                                   type="range" 
@@ -1929,9 +2086,9 @@ const [activeTab, setActiveTab] = useState<'trips' | 'passengers' | 'flow'>('tri
                   return showActions ? (
                     <div className="trip-actions" style={{marginLeft:'auto'}}>
                       {!flowStarted && (
-                        <button className="action-btn action-btn--start" onClick={(e) => { e.stopPropagation(); setStartConfirm(true); }}>{isRecentTripMode ? '出車開始' : '開始'}</button>
+                        <button className="action-btn action-btn--start" onClick={(e) => { e.stopPropagation(); setStartConfirm(true); }}>開始</button>
                       )}
-                      <button className="action-btn action-btn--end" onClick={(e) => { e.stopPropagation(); setEndConfirm(true); }}>{isRecentTripMode ? '出車結束' : '結束'}</button>
+                      <button className="action-btn action-btn--end" onClick={(e) => { e.stopPropagation(); setEndConfirm(true); }}>結束</button>
                     </div>
                   ) : null;
                 })()}
@@ -2559,11 +2716,11 @@ const DetailRows: React.FC<{ p: Passenger, stationContext?: string | null, mainT
       <hr style={{border: 'none', borderTop: '1px solid #eee', margin: '6px 0 4px'}} />
       <div className="detail-row">
         {renderLabel("上車站點")}
-        <div className="detail-value">{stations.up}</div>
+        <div className="detail-value">{stations.up || (p.direction === "去程" ? "福泰大飯店 (去)" : "")}</div>
       </div>
       <div className="detail-row">
         {renderLabel("下車站點")}
-        <div className="detail-value">{stations.down}</div>
+        <div className="detail-value">{stations.down || (p.direction === "回程" ? "福泰大飯店 (回)" : "")}</div>
       </div>
     </>
   );

@@ -49,10 +49,9 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, onClose, disabled = false, th
                       if (el) { el.currentTime = 0; el.play().catch(()=>{}); }
                       else { new Audio('assets/sounds/QR Code Scan Beep.mp3').play().catch(()=>{}); }
                     } catch {}
-                    try { if (typeof navigator !== 'undefined' && typeof (navigator as any).vibrate === 'function') { (navigator as any).vibrate([120, 80, 120]); } } catch {}
-                    try { Haptics.vibrate({ duration: 120 }); } catch {}
-                    try { await delay(140); } catch {}
-                    try { Haptics.vibrate({ duration: 120 }); } catch {}
+                    // 短震 0.5 秒
+                    try { if (typeof navigator !== 'undefined' && typeof (navigator as any).vibrate === 'function') { (navigator as any).vibrate(500); } } catch {}
+                    try { Haptics.vibrate({ duration: 500 }); } catch {}
                     onScan(decodedText);
                 },
                 (errorMessage) => {
@@ -62,7 +61,6 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, onClose, disabled = false, th
             startedRef.current = true;
 
         } catch (err) {
-            console.error("Error starting scanner", err);
         }
     };
 
@@ -95,7 +93,6 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, onClose, disabled = false, th
           setTorchOn(newStatus);
       })
       .catch(err => {
-          console.error("Torch failed", err);
       });
   };
 

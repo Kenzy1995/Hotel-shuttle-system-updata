@@ -70,36 +70,84 @@ export interface DriverDataResponse {
   }[];
 }
 
+// 時間格式正規化函數：將單數字小時轉換為兩位數格式
+// 例如："0:50" -> "00:50", "8:30" -> "08:30", "10:00" -> "10:00"
+const normalizeTimeFormat = (timeStr: string): string => {
+  if (!timeStr) return timeStr;
+  // 匹配時間格式 H:MM 或 HH:MM
+  const timeMatch = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+  if (timeMatch) {
+    const hours = timeMatch[1].padStart(2, '0');
+    const minutes = timeMatch[2];
+    return `${hours}:${minutes}`;
+  }
+  return timeStr;
+};
+
+// 日期時間字符串正規化：確保時間部分為 HH:MM 格式
+const normalizeDateTimeFormat = (dtStr: string): string => {
+  if (!dtStr) return dtStr;
+  const parts = dtStr.trim().split(" ");
+  if (parts.length === 2) {
+    const datePart = parts[0];
+    const timePart = normalizeTimeFormat(parts[1]);
+    return `${datePart} ${timePart}`;
+  }
+  return dtStr;
+};
+
+// 請求去重緩存（防止並發重複請求）
+let fetchAllDataPromise: Promise<{ trips: Trip[], tripPassengers: Passenger[], allPassengers: Passenger[] }> | null = null;
+
 export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: Passenger[], allPassengers: Passenger[] }> => {
-  try {
-    const res = await axios.get(`${API_BASE}/api/driver/data`);
+  // 如果已有進行中的請求，直接返回該 Promise
+  if (fetchAllDataPromise) {
+    return fetchAllDataPromise;
+  }
+  
+  fetchAllDataPromise = (async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/api/driver/data`);
     const data: DriverDataResponse = res.data;
 
-    const trips: Trip[] = data.trips.map(t => ({
-      id: t.trip_id,
-      date: t.date,
-      time: t.time,
-      route: '',
-      seats: 0,
-      booked: t.total_pax
-    }));
-
+    // 優化：合併遍歷，減少循環次數
+    // 1. 一次性構建所有需要的 Map 和數組
+    const trips: Trip[] = [];
+    const tripMap = new Map<string, {date: string, time: string}>();
     const passengerDetailsMap = new Map<string, typeof data.passenger_list[0]>();
+    const processedBookings = new Set<string>();
+    const allPassengers: Passenger[] = [];
+    const tripPassengers: Passenger[] = [];
+    
+    // 2. 單次遍歷 trips 構建 trips 數組和 tripMap
+    data.trips.forEach(t => {
+      // 統一日期格式為 YYYY/MM/DD
+      const normalizedDate = t.date.replace(/-/g, '/');
+      trips.push({
+        id: t.trip_id,
+        date: normalizedDate,
+        time: t.time,
+        route: '',
+        seats: 0,
+        booked: t.total_pax
+      });
+      tripMap.set(t.trip_id, {date: normalizedDate, time: t.time});
+    });
+
+    // 3. 單次遍歷 passenger_list 構建 passengerDetailsMap
     data.passenger_list.forEach(p => {
       passengerDetailsMap.set(p.booking_id, p);
     });
 
-    const tripMap = new Map<string, {date: string, time: string}>();
-    data.trips.forEach(t => {
-      tripMap.set(t.trip_id, {date: t.date, time: t.time});
-    });
-
-    const tripPassengers: Passenger[] = data.trip_passengers.map(p => {
+    // 4. 單次遍歷 trip_passengers 構建 tripPassengers 和處理 allPassengers
+    data.trip_passengers.forEach(p => {
       const details = passengerDetailsMap.get(p.booking_id);
       const tripInfo = tripMap.get(p.trip_id);
-      const derivedDateTime = tripInfo ? `${tripInfo.date.replace(/-/g, '/')} ${tripInfo.time}` : '';
+      const normalizedTime = tripInfo ? normalizeTimeFormat(tripInfo.time) : '';
+      const derivedDateTime = tripInfo ? `${tripInfo.date.replace(/-/g, '/')} ${normalizedTime}` : '';
       
-      return {
+      // 構建 tripPassengers
+      tripPassengers.push({
         id: p.booking_id,
         tripId: p.trip_id,
         bookingCode: p.booking_id,
@@ -116,14 +164,13 @@ export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: P
         train: details?.train || '',
         mall: details?.mall || '',
         hotel_back: details?.hotel_back || '',
-        main_datetime: details?.main_datetime || derivedDateTime
-      };
+        main_datetime: details?.main_datetime 
+          ? normalizeDateTimeFormat(details.main_datetime.replace(/-/g, '/'))
+          : derivedDateTime
+      });
     });
 
-    const allPassengers: Passenger[] = [];
-    const processedBookings = new Set<string>();
-
-    // 1. Process explicit passenger list
+    // 5. 單次遍歷 passenger_list 構建 allPassengers（優先使用）
     data.passenger_list.forEach(p => {
       processedBookings.add(p.booking_id);
       
@@ -133,9 +180,13 @@ export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: P
          if (tp) {
              const tripInfo = tripMap.get(tp.trip_id);
              if (tripInfo) {
-                 derivedDateTime = `${tripInfo.date.replace(/-/g, '/')} ${tripInfo.time}`;
+                 const normalizedTime = normalizeTimeFormat(tripInfo.time);
+                 derivedDateTime = `${tripInfo.date.replace(/-/g, '/')} ${normalizedTime}`;
              }
          }
+      } else {
+        // 如果已有 main_datetime，也要正規化時間格式
+        derivedDateTime = normalizeDateTimeFormat(p.main_datetime.replace(/-/g, '/'));
       }
 
       allPassengers.push({
@@ -159,13 +210,14 @@ export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: P
       });
     });
 
-    // 2. Add missing passengers from trip_passengers (Expired trips logic fix)
+    // 6. 單次遍歷 trip_passengers 添加缺失的乘客（已優化：使用已構建的 Map）
     data.trip_passengers.forEach(p => {
       if (!processedBookings.has(p.booking_id)) {
         processedBookings.add(p.booking_id);
 
         const tripInfo = tripMap.get(p.trip_id);
-        const derivedDateTime = tripInfo ? `${tripInfo.date.replace(/-/g, '/')} ${tripInfo.time}` : '';
+        const normalizedTime = tripInfo ? normalizeTimeFormat(tripInfo.time) : '';
+        const derivedDateTime = tripInfo ? `${tripInfo.date.replace(/-/g, '/')} ${normalizedTime}` : '';
         
         // Infer station columns
         let hotel_go = '', mrt = '', train = '', mall = '', hotel_back = '';
@@ -173,15 +225,9 @@ export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: P
         const ud = p.updown || '';
         
         if (s.includes('福泰') || s.includes('Forte')) {
-           // Guess direction based on derivedDateTime or just assume based on station text if available
-           // But here we rely on standard stations.
-           // If it's the start, it's Hotel Go. If it's end, it's Hotel Back.
-           // Since we don't have order, we'll try to guess or just put in Hotel Go if it's "上車" and Hotel Back if "下車"? 
-           // Better: Check direction from p.direction
            if (p.direction === '去程') hotel_go = ud;
            else if (p.direction === '回程') hotel_back = ud;
            else {
-             // Fallback
              if (ud === '上車') hotel_go = ud;
              else hotel_back = ud;
            }
@@ -215,10 +261,16 @@ export const fetchAllData = async (): Promise<{ trips: Trip[], tripPassengers: P
       }
     });
 
-    return { trips, tripPassengers, allPassengers };
-  } catch (e) {
-    return { trips: [], tripPassengers: [], allPassengers: [] };
-  }
+      return { trips, tripPassengers, allPassengers };
+    } catch (e) {
+      return { trips: [], tripPassengers: [], allPassengers: [] };
+    } finally {
+      // 清除緩存，允許下次請求
+      fetchAllDataPromise = null;
+    }
+  })();
+  
+  return fetchAllDataPromise;
 };
 
 export const fetchTrips = async (): Promise<Trip[]> => {
@@ -344,7 +396,8 @@ export const findNearestTripFromNow = (tripList: Trip[]): Trip | null => {
   let lastPastTs: number | null = null;
 
   for (const t of tripList) {
-    const dtStr = `${t.date} ${t.time}`; // "2025-12-08 08:00"
+    const normalizedTime = normalizeTimeFormat(t.time);
+    const dtStr = `${t.date} ${normalizedTime}`; // "2025-12-08 08:00"
     const dt = new Date(dtStr.replace(/-/g, '/')); // simple parse
     const ts = dt.getTime();
 

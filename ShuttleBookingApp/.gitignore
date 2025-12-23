@@ -50,7 +50,9 @@ android/app/local.properties
 *.log
 
 # Keystore files - included for complete project restoration
-# android/app/forte.keystore
-# android/app/keystore.properties
-# android/app/google-services.json
+# These files are NOT ignored to allow complete project restoration
+!android/app/forte.keystore
+!android/app/keystore.properties
+!android/app/google-services.json
+!android/gradle/wrapper/gradle-wrapper.jar
 
