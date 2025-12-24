@@ -7,14 +7,15 @@ yarn-debug.log*
 dist/
 build/
 
-# Android
-android/app/build/
-android/.gradle/
-android/local.properties
-android/captures/
-android/.idea/
-android/*.iml
-android/capacitor-cordova-android-plugins/build/
+# Android build outputs (但保留必要檔案)
+Driver-app/android/app/build/
+Driver-app/android/.gradle/
+Driver-app/android/local.properties
+Driver-app/android/captures/
+Driver-app/android/.idea/
+Driver-app/android/*.iml
+Driver-app/android/capacitor-cordova-android-plugins/build/
+Driver-app/android/build/
 
 # iOS
 ios/Pods/
@@ -34,12 +35,12 @@ ios/*.xcuserdata
 .env
 .env.local
 
-# 敏感文件
-*.keystore
-keystore.properties
-google-services.json
-
 # 系統文件
 .DS_Store
 Thumbs.db
 
+# 注意：Driver-app/android/app/ 下的以下檔案需要被包含（用於完整恢復專案）：
+# - forte.keystore
+# - keystore.properties  
+# - google-services.json
+# 這些檔案在 Driver-app/.gitignore 中已明確包含
